@@ -1,0 +1,101 @@
+name: VeloxQuantStudio
+options:
+  bundleIdPrefix: com.veloxquant
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  usesTabs: false
+  indentWidth: 4
+
+configFiles:
+  Debug: Secrets.xcconfig
+  Release: Secrets.xcconfig
+
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    from: 2.24.0
+
+targets:
+  VeloxQuantStudio:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: VeloxQuantStudio
+        excludes:
+          - "Resources/Info.plist"
+          - "Resources/VeloxQuantStudio.entitlements"
+    resources:
+      - path: VeloxQuantStudio/Resources/Assets.xcassets
+    info:
+      path: VeloxQuantStudio/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: VeloxQuant Studio
+        LSApplicationCategoryType: public.app-category.developer-tools
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSHumanReadableCopyright: "Copyright © 2026 VeloxQuant. All rights reserved."
+        ITSAppUsesNonExemptEncryption: false
+        SUPABASE_URL: $(SUPABASE_URL)
+        SUPABASE_ANON_KEY: $(SUPABASE_ANON_KEY)
+    entitlements:
+      path: VeloxQuantStudio/Resources/VeloxQuantStudio.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        com.apple.security.network.client: true
+        com.apple.security.files.user-selected.read-write: true
+        com.apple.security.files.bookmarks.app-scope: true
+    settings:
+      base:
+        PRODUCT_NAME: VeloxQuantStudio
+        PRODUCT_BUNDLE_IDENTIFIER: com.veloxquant.studio
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "6.0"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        ENABLE_HARDENED_RUNTIME: true
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: false
+        SWIFT_STRICT_CONCURRENCY: complete
+        DEVELOPMENT_ASSET_PATHS: ""
+    dependencies:
+      - package: Supabase
+        product: Supabase
+    postCompileScripts: []
+  VeloxQuantStudioTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: VeloxQuantStudioTests
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: com.veloxquant.studio.tests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/VeloxQuantStudio.app/Contents/MacOS/VeloxQuantStudio"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+    dependencies:
+      - target: VeloxQuantStudio
+
+schemes:
+  VeloxQuant Studio:
+    build:
+      targets:
+        VeloxQuantStudio: all
+        VeloxQuantStudioTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - VeloxQuantStudioTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

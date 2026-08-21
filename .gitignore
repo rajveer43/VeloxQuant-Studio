@@ -1,0 +1,32 @@
+# Xcode
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+.build/
+*.swiftpm/
+
+# xcodegen output (regenerated from project.yml)
+*.xcodeproj/
+
+# Secrets — never commit real credentials
+Secrets.xcconfig
+*.p12
+*.mobileprovision
+*.cer
+*.certSigningRequest
+AuthKey_*.p8
+.env
+.env.local
+
+# macOS
+.DS_Store
+
+# Swift Package Manager
+.swiftpm/
+Package.resolved
+
+# Logs
+*.log
