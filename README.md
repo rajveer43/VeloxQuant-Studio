@@ -37,6 +37,31 @@ Without a configured `Secrets.xcconfig`, the app still builds and runs — the
 auth screen shows a clear "not connected to Supabase" error instead of
 crashing, so UI/engine work can proceed independently of backend setup.
 
+## Running the app
+
+**From Xcode (recommended for development):**
+
+```bash
+open VeloxQuantStudio.xcodeproj
+```
+
+Then press `⌘R`. This gives you live reload, breakpoints, and console logs.
+
+**From the command line:**
+
+```bash
+xcodebuild -project VeloxQuantStudio.xcodeproj -scheme "VeloxQuant Studio" \
+  -destination "platform=macOS,arch=arm64" build
+
+open ~/Library/Developer/Xcode/DerivedData/VeloxQuantStudio-*/Build/Products/Debug/VeloxQuantStudio.app
+```
+
+If `project.yml` has changed since the `.xcodeproj` was last generated, run
+`xcodegen generate` again first. For quantization/serving/benchmarking to
+work, the app needs a Python interpreter with `veloxquant_mlx` installed —
+it will prompt you to auto-detect or select one in Settings → Compute if
+none is found.
+
 ## Architecture
 
 ```
