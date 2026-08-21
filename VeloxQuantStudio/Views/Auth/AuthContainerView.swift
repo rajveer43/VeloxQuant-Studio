@@ -78,14 +78,24 @@ private struct AuthFormCard: View {
                     .textContentType(.username)
                     .textFieldStyle(.roundedBorder)
 
-                SecureField("Password", text: $viewModel.password)
-                    .textContentType(viewModel.mode == .signIn ? .password : .newPassword)
-                    .textFieldStyle(.roundedBorder)
+                RevealablePasswordField(
+                    placeholder: "Password",
+                    text: $viewModel.password,
+                    contentType: viewModel.mode == .signIn ? .password : .newPassword
+                )
 
                 if viewModel.mode == .signUp {
-                    SecureField("Confirm password", text: $viewModel.confirmPassword)
-                        .textContentType(.newPassword)
-                        .textFieldStyle(.roundedBorder)
+                    RevealablePasswordField(
+                        placeholder: "Confirm password",
+                        text: $viewModel.confirmPassword,
+                        contentType: .newPassword
+                    )
+
+                    if !viewModel.confirmPassword.isEmpty && viewModel.password != viewModel.confirmPassword {
+                        Label("Passwords don't match yet", systemImage: "exclamationmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
                 }
             }
 
@@ -195,5 +205,49 @@ private struct ConfirmationPendingCard: View {
         .padding(32)
         .background(.background, in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.separator))
+    }
+}
+
+/// A password field with a show/hide toggle. Plain `SecureField` gives no
+/// way to verify what was actually typed, which made mismatched
+/// password/confirm-password fields look identical and the disabled
+/// "Create Account" button feel unexplained.
+private struct RevealablePasswordField: View {
+    let placeholder: String
+    @Binding var text: String
+    var contentType: NSTextContentType?
+
+    @State private var isRevealed = false
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Group {
+                if isRevealed {
+                    TextField(placeholder, text: $text)
+                } else {
+                    SecureField(placeholder, text: $text)
+                }
+            }
+            .textContentType(contentType)
+            .focused($isFocused)
+            .textFieldStyle(.plain)
+
+            Button {
+                isRevealed.toggle()
+            } label: {
+                Image(systemName: isRevealed ? "eye.slash" : "eye")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(isRevealed ? "Hide password" : "Show password")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(.background, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(isFocused ? Color.accentColor : Color(nsColor: .separatorColor))
+        )
     }
 }
