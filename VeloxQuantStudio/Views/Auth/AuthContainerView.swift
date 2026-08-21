@@ -28,6 +28,15 @@ struct AuthContainerView: View {
                 endPoint: .bottomTrailing
             )
 
+            CompressionAnimationView()
+                .opacity(0.9)
+
+            LinearGradient(
+                colors: [.clear, Color.black.opacity(0.35)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+
             VStack(alignment: .leading, spacing: 16) {
                 Image(systemName: "cpu")
                     .font(.system(size: 34))
@@ -42,6 +51,7 @@ struct AuthContainerView: View {
             }
             .padding(40)
         }
+        .clipped()
     }
 }
 
