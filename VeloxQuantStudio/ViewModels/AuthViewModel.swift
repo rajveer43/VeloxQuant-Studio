@@ -18,7 +18,13 @@ final class AuthViewModel {
     var confirmPassword: String = ""
     var isLoading: Bool = false
     var errorMessage: String?
-    var infoMessage: String?
+
+    /// Set right after a sign-up call that requires the user to click a
+    /// confirmation link before they can sign in. While non-nil, the auth
+    /// screen shows a dedicated "check your email" state instead of the form.
+    var pendingConfirmationEmail: String?
+    var isResendingConfirmation: Bool = false
+    var resendMessage: String?
 
     var isFormValid: Bool {
         guard email.contains("@"), password.count >= 8 else { return false }
@@ -46,7 +52,6 @@ final class AuthViewModel {
 
         isLoading = true
         errorMessage = nil
-        infoMessage = nil
         defer { isLoading = false }
 
         do {
@@ -59,11 +64,33 @@ final class AuthViewModel {
             password = ""
             confirmPassword = ""
         } catch AuthError.confirmationRequired {
-            infoMessage = "Check your inbox to confirm your email, then sign in."
-            mode = .signIn
+            pendingConfirmationEmail = email
+            password = ""
+            confirmPassword = ""
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    func resendConfirmationEmail() async {
+        guard let pendingConfirmationEmail else { return }
+        isResendingConfirmation = true
+        resendMessage = nil
+        defer { isResendingConfirmation = false }
+
+        do {
+            try await authService.resendConfirmationEmail(email: pendingConfirmationEmail)
+            resendMessage = "Confirmation email sent again."
+        } catch {
+            resendMessage = error.localizedDescription
+        }
+    }
+
+    /// Returns to the sign-in form from the "check your email" state.
+    func cancelPendingConfirmation() {
+        pendingConfirmationEmail = nil
+        resendMessage = nil
+        mode = .signIn
     }
 
     func signOut() async {
@@ -78,6 +105,5 @@ final class AuthViewModel {
     func toggleMode() {
         mode = mode == .signIn ? .signUp : .signIn
         errorMessage = nil
-        infoMessage = nil
     }
 }

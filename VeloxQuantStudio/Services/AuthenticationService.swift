@@ -9,6 +9,9 @@ protocol AuthenticationServiceProtocol: Sendable {
     /// needed. Returns `nil` if there is no stored session or it could not
     /// be refreshed (expired refresh token, revoked, offline with no cache).
     func restoreSession() async -> AuthSession?
+    /// Re-sends the sign-up confirmation email for an account that hasn't
+    /// verified yet.
+    func resendConfirmationEmail(email: String) async throws
 }
 
 /// Wraps the Supabase Swift SDK for email/password auth. Session tokens are
@@ -53,6 +56,10 @@ final class AuthenticationService: AuthenticationServiceProtocol, @unchecked Sen
     func signOut() async throws {
         try await client().auth.signOut()
         KeychainService.clearSession()
+    }
+
+    func resendConfirmationEmail(email: String) async throws {
+        try await client().auth.resend(email: email, type: .signup)
     }
 
     func restoreSession() async -> AuthSession? {

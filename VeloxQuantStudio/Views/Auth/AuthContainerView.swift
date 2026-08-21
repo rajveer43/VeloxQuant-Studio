@@ -10,8 +10,13 @@ struct AuthContainerView: View {
 
             VStack {
                 Spacer()
-                AuthFormCard(viewModel: viewModel)
-                    .frame(maxWidth: 380)
+                if viewModel.pendingConfirmationEmail != nil {
+                    ConfirmationPendingCard(viewModel: viewModel)
+                        .frame(maxWidth: 380)
+                } else {
+                    AuthFormCard(viewModel: viewModel)
+                        .frame(maxWidth: 380)
+                }
                 Spacer()
             }
             .frame(maxWidth: .infinity)
@@ -87,11 +92,6 @@ private struct AuthFormCard: View {
             if let errorMessage = viewModel.errorMessage {
                 ErrorBanner(message: errorMessage)
             }
-            if let infoMessage = viewModel.infoMessage {
-                Text(infoMessage)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
 
             Button {
                 Task { await viewModel.submit() }
@@ -119,6 +119,78 @@ private struct AuthFormCard: View {
                 .foregroundStyle(Color.accentColor)
             }
             .font(.callout)
+        }
+        .padding(32)
+        .background(.background, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.separator))
+    }
+}
+
+/// Shown after sign-up when the Supabase project requires email confirmation
+/// before a session is issued. Gives the user a clear next step (check
+/// inbox), a way to resend the link, and a way back to the sign-in form.
+private struct ConfirmationPendingCard: View {
+    @Bindable var viewModel: AuthViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .center, spacing: 12) {
+                Image(systemName: "envelope.badge.fill")
+                    .font(.system(size: 34))
+                    .foregroundStyle(Color.accentColor)
+
+                VStack(spacing: 4) {
+                    Text("Confirm your email")
+                        .font(.title2.weight(.semibold))
+                    if let email = viewModel.pendingConfirmationEmail {
+                        Text("We sent a confirmation link to")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Text(email)
+                            .font(.callout.weight(.medium))
+                            .textSelection(.enabled)
+                    }
+                }
+                .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+
+            Text("Click the link in that email, then come back and sign in. It can take a minute or two to arrive — check spam if you don't see it.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+
+            if let resendMessage = viewModel.resendMessage {
+                Text(resendMessage)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+
+            VStack(spacing: 10) {
+                Button {
+                    Task { await viewModel.resendConfirmationEmail() }
+                } label: {
+                    if viewModel.isResendingConfirmation {
+                        ProgressView().controlSize(.small)
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Text("Resend confirmation email")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(viewModel.isResendingConfirmation)
+
+                Button("Back to sign in") {
+                    viewModel.cancelPendingConfirmation()
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+                .font(.callout)
+            }
         }
         .padding(32)
         .background(.background, in: RoundedRectangle(cornerRadius: 16))
