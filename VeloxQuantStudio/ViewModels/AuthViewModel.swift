@@ -93,6 +93,24 @@ final class AuthViewModel {
         mode = .signIn
     }
 
+    /// Called when the OS hands the app a `veloxquantstudio://` URL — the
+    /// user clicked a confirmation/magic-link email and macOS routed it
+    /// back here instead of a dead localhost tab.
+    func handleAuthCallback(url: URL) async {
+        guard AuthDeepLink.isAuthCallback(url) else { return }
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            session = try await authService.completeSession(fromCallbackURL: url)
+            pendingConfirmationEmail = nil
+            resendMessage = nil
+        } catch {
+            errorMessage = "Couldn't complete sign-in from that link: \(error.localizedDescription)"
+        }
+    }
+
     func signOut() async {
         do {
             try await authService.signOut()

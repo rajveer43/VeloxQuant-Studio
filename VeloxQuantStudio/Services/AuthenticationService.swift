@@ -12,6 +12,23 @@ protocol AuthenticationServiceProtocol: Sendable {
     /// Re-sends the sign-up confirmation email for an account that hasn't
     /// verified yet.
     func resendConfirmationEmail(email: String) async throws
+    /// Completes a sign-up/magic-link session from the `veloxquantstudio://`
+    /// callback URL the OS hands the app when a confirmation link is clicked.
+    func completeSession(fromCallbackURL url: URL) async throws -> AuthSession
+}
+
+/// The custom URL scheme confirmation/magic-link emails redirect back to.
+/// Registered as a `CFBundleURLTypes` entry in project.yml — without a
+/// registered scheme, macOS has nowhere to route the link and Supabase
+/// falls back to its dashboard-configured Site URL (often a leftover
+/// localhost:3000 from a web template), which just fails to load.
+enum AuthDeepLink {
+    static let scheme = "veloxquantstudio"
+    static let callbackURL = URL(string: "\(scheme)://auth-callback")!
+
+    static func isAuthCallback(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == scheme
+    }
 }
 
 /// Wraps the Supabase Swift SDK for email/password auth. Session tokens are
@@ -36,7 +53,11 @@ final class AuthenticationService: AuthenticationServiceProtocol, @unchecked Sen
     }
 
     func signUp(email: String, password: String) async throws -> AuthSession {
-        let response = try await client().auth.signUp(email: email, password: password)
+        let response = try await client().auth.signUp(
+            email: email,
+            password: password,
+            redirectTo: AuthDeepLink.callbackURL
+        )
         guard let session = response.session else {
             // Email confirmation required flows land here with no session yet.
             throw AuthError.confirmationRequired
@@ -59,7 +80,18 @@ final class AuthenticationService: AuthenticationServiceProtocol, @unchecked Sen
     }
 
     func resendConfirmationEmail(email: String) async throws {
-        try await client().auth.resend(email: email, type: .signup)
+        try await client().auth.resend(
+            email: email,
+            type: .signup,
+            emailRedirectTo: AuthDeepLink.callbackURL
+        )
+    }
+
+    func completeSession(fromCallbackURL url: URL) async throws -> AuthSession {
+        let session = try await client().auth.session(from: url)
+        let mapped = map(session: session)
+        try? KeychainService.saveSession(mapped)
+        return mapped
     }
 
     func restoreSession() async -> AuthSession? {

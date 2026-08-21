@@ -38,6 +38,10 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         SUPABASE_URL: $(SUPABASE_URL)
         SUPABASE_ANON_KEY: $(SUPABASE_ANON_KEY)
+        CFBundleURLTypes:
+          - CFBundleURLName: com.veloxquant.studio.auth
+            CFBundleURLSchemes:
+              - veloxquantstudio
     entitlements:
       path: VeloxQuantStudio/Resources/VeloxQuantStudio.entitlements
       properties:
