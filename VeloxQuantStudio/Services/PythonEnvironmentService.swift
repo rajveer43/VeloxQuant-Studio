@@ -44,18 +44,36 @@ final class PythonEnvironmentService {
 
     func autoDetect() async {
         status = .checking
+
+        // `VIRTUAL_ENV`/`CONDA_PREFIX` reflect whatever env was active when
+        // the app was launched (e.g. from a terminal with a venv sourced).
+        let env = ProcessInfo.processInfo.environment
+        for prefix in [env["VIRTUAL_ENV"], env["CONDA_PREFIX"]].compactMap({ $0 }) {
+            let path = (prefix as NSString).appendingPathComponent("bin/python3")
+            if FileManager.default.isExecutableFile(atPath: path) {
+                await validate(path: path)
+                if case .valid = status { return }
+            }
+        }
+
         for path in Self.candidatePaths {
             if FileManager.default.isExecutableFile(atPath: path) {
                 await validate(path: path)
                 if case .valid = status { return }
             }
         }
+
         // Fall back to whatever `python3` resolves to on PATH via a login
         // shell, so pyenv/conda shims that aren't at a fixed path still work.
-        if let resolved = await resolveViaLoginShell() {
-            await validate(path: resolved)
-            if case .valid = status { return }
+        // Tried non-interactive first, then interactive: venv/conda activation
+        // is typically sourced from `.zshrc`, which only `-i` (not `-l`) reads.
+        for args in [["-l", "-c", "command -v python3"], ["-i", "-c", "command -v python3"]] {
+            if let resolved = await resolveViaLoginShell(arguments: args) {
+                await validate(path: resolved)
+                if case .valid = status { return }
+            }
         }
+
         status = .invalid(reason: "No Python interpreter with veloxquant_mlx installed was found.")
     }
 
@@ -87,11 +105,11 @@ final class PythonEnvironmentService {
         }
     }
 
-    private func resolveViaLoginShell() async -> String? {
+    private func resolveViaLoginShell(arguments: [String]) async -> String? {
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         guard let result = try? await ProcessRunner.run(
             executable: shell,
-            arguments: ["-l", "-c", "command -v python3"]
+            arguments: arguments
         ), result.exitCode == 0 else {
             return nil
         }

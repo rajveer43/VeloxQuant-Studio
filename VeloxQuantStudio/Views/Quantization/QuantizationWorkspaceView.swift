@@ -73,6 +73,10 @@ struct QuantizationWorkspaceView: View {
 
             if viewModel.isLoadingMethods {
                 ProgressView().controlSize(.small)
+            } else if viewModel.availableMethods.isEmpty {
+                Text("No methods available. Configure a Python interpreter in Settings → Compute.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             } else {
                 Picker("Method", selection: Binding(
                     get: { viewModel.selectedMethod },

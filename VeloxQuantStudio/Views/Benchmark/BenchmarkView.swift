@@ -55,10 +55,10 @@ struct BenchmarkView: View {
                     ForEach(MacChipFamily.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
                 Picker("RAM", selection: $ramGB) {
-                    ForEach([8, 16, 24, 32, 36, 48, 64, 128], id: \.self) { Text("\($0) GB").tag($0) }
+                    ForEach([8, 16, 24, 32, 36, 48, 64, 96, 128, 192, 512], id: \.self) { Text("\($0) GB").tag($0) }
                 }
                 Picker("Model", selection: $modelClass) {
-                    ForEach(["1B", "3B", "7B", "14B", "32B"], id: \.self) { Text($0).tag($0) }
+                    ForEach(["1B", "3B", "7B", "14B", "32B", "70B", "120B", "235B", "671B"], id: \.self) { Text($0).tag($0) }
                 }
                 Picker("Goal", selection: $goal) {
                     Text("Everyday").tag("everyday")
