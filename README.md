@@ -143,7 +143,7 @@ on `Process`, file I/O, or the Supabase SDK directly.
 
 ### Why subprocess, not a rewrite
 
-VeloxQuant-MLX's 42 compression methods, Metal kernels, and paper-fidelity
+VeloxQuant-MLX's 43 compression methods, Metal kernels, and paper-fidelity
 notes live in a mature, independently-tested Python/MLX codebase. Reimplementing
 that in Swift for an MVP would both duplicate months of validated work and
 drop the paper-deviation/honesty guarantees (`docs/control-panel-plan.md` §4)
