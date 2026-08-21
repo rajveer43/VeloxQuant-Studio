@@ -25,6 +25,13 @@ struct AppCommands: Commands {
                 Task { await appState.dashboardViewModel.refresh() }
             }
             .keyboardShortcut("r", modifiers: .command)
+
+            Button(appState.isSidebarExpanded ? "Hide Sidebar" : "Show Sidebar") {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    appState.isSidebarExpanded.toggle()
+                }
+            }
+            .keyboardShortcut("s", modifiers: [.command, .control])
         }
     }
 

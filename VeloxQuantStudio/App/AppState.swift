@@ -25,6 +25,7 @@ final class AppState {
     let historyViewModel: HistoryViewModel
 
     var selectedSection: AppSection = .dashboard
+    var isSidebarExpanded: Bool = true
 
     init() {
         let storage = StorageService()

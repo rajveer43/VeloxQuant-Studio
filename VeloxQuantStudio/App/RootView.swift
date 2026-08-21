@@ -11,12 +11,12 @@ struct RootView: View {
                 AuthContainerView()
                     .environment(appState.authViewModel)
             } else {
-                NavigationSplitView {
-                    SidebarView(selection: $appState.selectedSection)
-                } detail: {
+                HStack(spacing: 0) {
+                    SidebarContainer(selection: $appState.selectedSection)
+                    Divider()
                     detailView
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
             }
         }
         .task {
