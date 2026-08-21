@@ -62,6 +62,59 @@ work, the app needs a Python interpreter with `veloxquant_mlx` installed —
 it will prompt you to auto-detect or select one in Settings → Compute if
 none is found.
 
+## Releasing a DMG build
+
+There's no Apple Developer Program account behind this app yet, so builds
+are ad-hoc signed rather than signed with a Developer ID + notarized. That's
+fine for sharing a DMG directly (e.g. via GitHub Releases) — it just means
+Gatekeeper shows an "unidentified developer" warning on first launch (see
+below). Once a paid account + Developer ID Application certificate exist,
+swap the `codesign` step for a real identity and add `xcrun notarytool` /
+`stapler` to remove that warning.
+
+**1. Build a Release configuration:**
+
+```bash
+xcodebuild -project VeloxQuantStudio.xcodeproj -scheme "VeloxQuant Studio" \
+  -configuration Release -destination "platform=macOS,arch=arm64" \
+  -derivedDataPath build clean build
+```
+
+**2. Ad-hoc code sign** (macOS refuses to run an app with no signature at
+all once it's been through a zip/DMG/download, even without a real cert):
+
+```bash
+codesign --force --deep --sign - "build/Build/Products/Release/VeloxQuantStudio.app"
+```
+
+**3. Package into a DMG.** [`create-dmg`](https://github.com/create-dmg/create-dmg)
+gives a standard drag-to-Applications layout:
+
+```bash
+brew install create-dmg
+
+create-dmg \
+  --volname "VeloxQuant Studio" \
+  --window-size 600 400 \
+  --icon-size 100 \
+  --app-drop-link 450 200 \
+  "VeloxQuant-Studio-0.1.0.dmg" \
+  "build/Build/Products/Release/VeloxQuantStudio.app"
+```
+
+**4. Attach to a GitHub Release** (version should match `MARKETING_VERSION`
+in `project.yml`):
+
+```bash
+gh release create v0.1.0 VeloxQuant-Studio-0.1.0.dmg \
+  --title "v0.1.0" --notes "..."
+```
+
+**What users will see:** on first launch, Gatekeeper blocks the app as
+being from an "unidentified developer." They need to right-click the app
+→ Open (or System Settings → Privacy & Security → "Open Anyway") once.
+Mention this in release notes so it doesn't look broken.
+
 ## Architecture
 
 ```
