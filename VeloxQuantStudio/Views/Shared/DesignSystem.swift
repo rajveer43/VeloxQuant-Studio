@@ -26,7 +26,7 @@ struct StatCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(title)
                     .font(.caption)
@@ -34,8 +34,10 @@ struct StatCard: View {
                 Spacer()
                 if let symbol {
                     Image(systemName: symbol)
+                        .font(.caption.weight(.semibold))
                         .foregroundStyle(tint)
-                        .font(.caption)
+                        .frame(width: 22, height: 22)
+                        .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
                 }
             }
             Text(value)
@@ -49,7 +51,11 @@ struct StatCard: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: Metrics.cardCornerRadius))
+        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: Metrics.cardCornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: Metrics.cardCornerRadius)
+                .strokeBorder(.quaternary.opacity(0.5), lineWidth: 1)
+        )
     }
 }
 
