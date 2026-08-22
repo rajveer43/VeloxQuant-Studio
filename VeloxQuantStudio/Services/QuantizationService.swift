@@ -127,20 +127,8 @@ final class QuantizationService: QuantizationServiceProtocol {
             return handle
         }
 
-        var arguments = [
-            "-m", "veloxquant_mlx", "serve",
-            "--model", request.model.localPath ?? request.model.repoID,
-            "--method", request.method.name,
-            "--bits", String(request.bitWidth),
-            "--host", "127.0.0.1",
-            "--port", String(request.port),
-        ]
-        for (key, value) in request.parameterOverrides where !value.isEmpty {
-            arguments.append(contentsOf: ["--set", "\(key)=\(value)"])
-        }
-
         do {
-            try controller.start(executable: interpreter, arguments: arguments)
+            try controller.start(executable: interpreter, arguments: Self.serveArguments(for: request))
         } catch {
             jobHistoryStore.complete(record, status: .failed, error: error.localizedDescription)
         }
@@ -153,5 +141,29 @@ final class QuantizationService: QuantizationServiceProtocol {
         if let record = handle.record, record.status == .running {
             jobHistoryStore.complete(record, status: .cancelled)
         }
+    }
+
+    /// Pure argument-list builder, split out so the `--bits`/`--set` interaction
+    /// can be unit-tested without launching a real process.
+    ///
+    /// `--bits` always becomes `bit_width_inlier=args.bits` in `build_config()`
+    /// (`serve.py`), unconditionally. Also forwarding `bit_width_inlier` via
+    /// `--set` — which happens whenever the selected method declares that
+    /// field, since the parameter editor pre-fills every declared field —
+    /// collides as a duplicate keyword argument to `KVCacheConfig(...)` and
+    /// crashes the server before the model loads.
+    static func serveArguments(for request: QuantizationRequest) -> [String] {
+        var arguments = [
+            "-m", "veloxquant_mlx", "serve",
+            "--model", request.model.localPath ?? request.model.repoID,
+            "--method", request.method.name,
+            "--bits", String(request.bitWidth),
+            "--host", "127.0.0.1",
+            "--port", String(request.port),
+        ]
+        for (key, value) in request.parameterOverrides where !value.isEmpty && key != "bit_width_inlier" {
+            arguments.append(contentsOf: ["--set", "\(key)=\(value)"])
+        }
+        return arguments
     }
 }
