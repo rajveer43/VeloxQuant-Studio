@@ -8,7 +8,7 @@ struct QuantizationMethod: Identifiable, Codable, Hashable {
     var id: String { name }
 
     let name: String
-    let family: String
+    let family: MethodFamily
     let serveTier: ServeTier
     let serveTierLabel: String
     let isServable: Bool
@@ -20,7 +20,12 @@ struct QuantizationMethod: Identifiable, Codable, Hashable {
     let paperDeviation: String?
     let isAdapted: Bool
     let unsupportedReason: String?
-    let docsURL: String
+    let docsURLString: String
+
+    /// `docs_url` is always a well-formed URL from `registry.py`'s computed
+    /// property, but decoded as `String` since Foundation's `URL` decoding
+    /// isn't worth the failure mode for a value we only ever use to open a link.
+    var docsURL: URL? { URL(string: docsURLString) }
 
     enum CodingKeys: String, CodingKey {
         case name, family
@@ -35,14 +40,40 @@ struct QuantizationMethod: Identifiable, Codable, Hashable {
         case paperDeviation = "paper_deviation"
         case isAdapted = "is_adapted"
         case unsupportedReason = "unsupported_reason"
-        case docsURL = "docs_url"
+        case docsURLString = "docs_url"
     }
 
+    /// Mirrors `ServeTier` in `registry.py`. `crashes` was previously
+    /// (incorrectly) modeled as `unsupported` here, which never matched the
+    /// wire value `"crashes"` — any method in that tier would have failed to
+    /// decode and dropped the whole `methods --json` response.
     enum ServeTier: String, Codable {
         case honestBytes = "honest_bytes"
         case accountingOnly = "accounting_only"
         case notTrimmable = "not_trimmable"
-        case unsupported = "unsupported"
+        case crashes = "crashes"
+
+        var isServable: Bool {
+            self == .honestBytes || self == .accountingOnly || self == .notTrimmable
+        }
+    }
+}
+
+/// Mirrors `MethodFamily` in `registry.py` — what the method primarily does
+/// to the cache. Drives the method browser's filter control.
+enum MethodFamily: String, Codable, CaseIterable, Identifiable {
+    case quantization
+    case eviction
+    case hybrid
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .quantization: "Quantization"
+        case .eviction: "Eviction"
+        case .hybrid: "Hybrid"
+        }
     }
 }
 

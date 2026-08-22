@@ -5,6 +5,8 @@ protocol StorageServiceProtocol: Sendable {
     func setModelStorageLocation(_ url: URL)
     var telemetryEnabled: Bool { get }
     func setTelemetryEnabled(_ enabled: Bool)
+    var generationProfile: GenerationProfile { get }
+    func setGenerationProfile(_ profile: GenerationProfile)
 }
 
 /// Thin `UserDefaults` wrapper for app-level settings that aren't part of a
@@ -15,6 +17,7 @@ final class StorageService: StorageServiceProtocol, @unchecked Sendable {
     private let defaults = UserDefaults.standard
     private let storageLocationKey = "veloxquant.modelStorageLocation"
     private let telemetryKey = "veloxquant.telemetryEnabled"
+    private let generationProfileKey = "veloxquant.generationProfile"
 
     var modelStorageLocation: URL {
         if let path = defaults.string(forKey: storageLocationKey) {
@@ -33,6 +36,19 @@ final class StorageService: StorageServiceProtocol, @unchecked Sendable {
 
     func setTelemetryEnabled(_ enabled: Bool) {
         defaults.set(enabled, forKey: telemetryKey)
+    }
+
+    var generationProfile: GenerationProfile {
+        guard let data = defaults.data(forKey: generationProfileKey),
+              let profile = try? JSONDecoder().decode(GenerationProfile.self, from: data) else {
+            return .default
+        }
+        return profile
+    }
+
+    func setGenerationProfile(_ profile: GenerationProfile) {
+        guard let data = try? JSONEncoder().encode(profile) else { return }
+        defaults.set(data, forKey: generationProfileKey)
     }
 
     private func defaultLocation() -> URL {

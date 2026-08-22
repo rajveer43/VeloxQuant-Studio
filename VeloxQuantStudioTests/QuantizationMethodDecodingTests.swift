@@ -33,8 +33,8 @@ struct QuantizationMethodDecodingTests {
             {
               "name": "turboquant_prod",
               "family": "quantization",
-              "serve_tier": "unsupported",
-              "serve_tier_label": "Unsupported",
+              "serve_tier": "crashes",
+              "serve_tier_label": "Crashes",
               "is_servable": false,
               "blurb": "TurboQuant product quantization; the library default for offline study.",
               "config_fields": [],
@@ -63,6 +63,33 @@ struct QuantizationMethodDecodingTests {
         let unsupported = try #require(response.methods.first { $0.name == "turboquant_prod" })
         #expect(!unsupported.isServable)
         #expect(unsupported.unsupportedReason != nil)
+        #expect(unsupported.serveTier == .crashes)
+    }
+
+    @Test func decodesDocsURLAndFamily() throws {
+        let json = """
+        {
+          "name": "kivi",
+          "family": "quantization",
+          "serve_tier": "accounting_only",
+          "serve_tier_label": "Serves (accounting-only)",
+          "is_servable": true,
+          "blurb": "KIVI: asymmetric per-group min/max quantization, key-per-channel.",
+          "config_fields": [],
+          "field_schema": [],
+          "coverage": "keys_and_values",
+          "coverage_label": "Keys and values",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": null,
+          "docs_url": "https://veloxquant-mlx.netlify.app/docs/methods/kivi"
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let method = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(method.family == .quantization)
+        #expect(method.docsURL == URL(string: "https://veloxquant-mlx.netlify.app/docs/methods/kivi"))
     }
 
     @Test func decodesServeReadyHandshake() throws {

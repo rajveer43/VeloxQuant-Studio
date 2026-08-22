@@ -19,24 +19,60 @@ final class QuantizationViewModel {
     var bitWidth: Int = 2
     var parameterOverrides: [String: String] = [:]
     var port: Int = 8000
+    var familyFilter: MethodFamily?
 
     private(set) var activeJob: QuantizationJobHandle?
 
+    private let storageService: StorageServiceProtocol
+    var generationProfile: GenerationProfile {
+        didSet { storageService.setGenerationProfile(generationProfile) }
+    }
+
+    var filteredMethods: [QuantizationMethod] {
+        guard let familyFilter else { return availableMethods }
+        return availableMethods.filter { $0.family == familyFilter }
+    }
+
     var servableMethods: [QuantizationMethod] {
-        availableMethods.filter(\.isServable)
+        filteredMethods.filter(\.isServable)
     }
 
     var unsupportedMethods: [QuantizationMethod] {
-        availableMethods.filter { !$0.isServable }
+        filteredMethods.filter { !$0.isServable }
+    }
+
+    /// Presets validated against the currently probed registry — a preset
+    /// naming a method this build doesn't expose (removed, renamed, or not
+    /// compiled in) is hidden rather than shown broken.
+    var availablePresets: [MethodPreset] {
+        MethodPreset.all.filter { preset in
+            availableMethods.contains { $0.name == preset.methodName }
+        }
+    }
+
+    /// Names the reason Start is disabled when a non-servable method is
+    /// selected, so the tier that blocked it is visible at the point of
+    /// failure, not just buried in the method detail card above.
+    var startBlockedReason: String? {
+        guard let selectedMethod else { return nil }
+        guard !selectedMethod.isServable else { return nil }
+        return selectedMethod.unsupportedReason
+            ?? "\(selectedMethod.name) is \(selectedMethod.serveTierLabel.lowercased()) and cannot be started."
     }
 
     var canStart: Bool {
         selectedModel != nil && selectedMethod?.isServable == true && activeJob == nil
     }
 
-    init(quantizationService: QuantizationServiceProtocol, modelService: ModelServiceProtocol) {
+    init(
+        quantizationService: QuantizationServiceProtocol,
+        modelService: ModelServiceProtocol,
+        storageService: StorageServiceProtocol
+    ) {
         self.quantizationService = quantizationService
         self.modelService = modelService
+        self.storageService = storageService
+        self.generationProfile = storageService.generationProfile
     }
 
     func loadContext() async {
@@ -72,6 +108,19 @@ final class QuantizationViewModel {
             if let defaultValue = field.defaultValue {
                 parameterOverrides[field.name] = defaultValue.displayString
             }
+        }
+    }
+
+    /// Applies a named preset atomically: method, bit width, and its
+    /// overrides land together, rather than a caller having to call
+    /// `selectMethod` then patch overrides in separately (which would
+    /// briefly show the method's raw defaults before the preset's values).
+    func applyPreset(_ preset: MethodPreset) {
+        guard let method = availableMethods.first(where: { $0.name == preset.methodName }) else { return }
+        selectMethod(method)
+        bitWidth = preset.bitWidth
+        for (key, value) in preset.parameterOverrides {
+            parameterOverrides[key] = value
         }
     }
 

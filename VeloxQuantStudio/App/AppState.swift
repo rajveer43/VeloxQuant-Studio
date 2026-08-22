@@ -56,7 +56,8 @@ final class AppState {
         self.modelLibraryViewModel = ModelLibraryViewModel(modelService: models)
         self.quantizationViewModel = QuantizationViewModel(
             quantizationService: quant,
-            modelService: models
+            modelService: models,
+            storageService: storage
         )
         self.historyViewModel = HistoryViewModel(jobHistoryStore: history)
     }
