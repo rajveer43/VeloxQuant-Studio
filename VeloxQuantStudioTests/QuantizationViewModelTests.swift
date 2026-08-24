@@ -58,7 +58,7 @@ private func makeMethod(
         paperDeviation: nil,
         isAdapted: false,
         unsupportedReason: serveTier.isServable ? nil : "\(name) does not subclass mlx_lm KVCache",
-        docsURLString: "https://veloxquant-mlx.netlify.app/docs/methods/\(name)"
+        docsURLString: nil
     )
 }
 

@@ -28,7 +28,7 @@ struct QuantizationMethodDecodingTests {
               "paper_deviation": null,
               "is_adapted": false,
               "unsupported_reason": null,
-              "docs_url": "https://veloxquant-mlx.netlify.app/docs/methods/turboquant-rvq"
+              "docs_url": "https://veloxquant-mlx.netlify.app/docs/algorithms/rvq"
             },
             {
               "name": "turboquant_prod",
@@ -44,7 +44,7 @@ struct QuantizationMethodDecodingTests {
               "paper_deviation": null,
               "is_adapted": false,
               "unsupported_reason": "does not subclass mlx_lm KVCache",
-              "docs_url": "https://veloxquant-mlx.netlify.app/docs/methods/turboquant-prod"
+              "docs_url": null
             }
           ]
         }
@@ -59,11 +59,13 @@ struct QuantizationMethodDecodingTests {
         let servable = try #require(response.methods.first { $0.name == "turboquant_rvq" })
         #expect(servable.isServable)
         #expect(servable.fieldSchema.count == 2)
+        #expect(servable.docsURL == URL(string: "https://veloxquant-mlx.netlify.app/docs/algorithms/rvq"))
 
         let unsupported = try #require(response.methods.first { $0.name == "turboquant_prod" })
         #expect(!unsupported.isServable)
         #expect(unsupported.unsupportedReason != nil)
         #expect(unsupported.serveTier == .crashes)
+        #expect(unsupported.docsURL == nil)
     }
 
     @Test func decodesDocsURLAndFamily() throws {
@@ -82,14 +84,14 @@ struct QuantizationMethodDecodingTests {
           "paper_deviation": null,
           "is_adapted": false,
           "unsupported_reason": null,
-          "docs_url": "https://veloxquant-mlx.netlify.app/docs/methods/kivi"
+          "docs_url": "https://veloxquant-mlx.netlify.app/docs/algorithms/kivi"
         }
         """
         let data = try #require(json.data(using: .utf8))
         let method = try JSONDecoder().decode(QuantizationMethod.self, from: data)
 
         #expect(method.family == .quantization)
-        #expect(method.docsURL == URL(string: "https://veloxquant-mlx.netlify.app/docs/methods/kivi"))
+        #expect(method.docsURL == URL(string: "https://veloxquant-mlx.netlify.app/docs/algorithms/kivi"))
     }
 
     @Test func decodesServeReadyHandshake() throws {

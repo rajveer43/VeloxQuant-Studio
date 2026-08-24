@@ -20,12 +20,13 @@ struct QuantizationMethod: Identifiable, Codable, Hashable {
     let paperDeviation: String?
     let isAdapted: Bool
     let unsupportedReason: String?
-    let docsURLString: String
+    let docsURLString: String?
 
-    /// `docs_url` is always a well-formed URL from `registry.py`'s computed
-    /// property, but decoded as `String` since Foundation's `URL` decoding
-    /// isn't worth the failure mode for a value we only ever use to open a link.
-    var docsURL: URL? { URL(string: docsURLString) }
+    /// `docs_url` is `nil` when `registry.py` has no published doc page for
+    /// this method (most of them, currently) — decoded as `String` rather
+    /// than `URL` since Foundation's `URL` decoding isn't worth the failure
+    /// mode for a value we only ever use to open a link.
+    var docsURL: URL? { docsURLString.flatMap(URL.init(string:)) }
 
     enum CodingKeys: String, CodingKey {
         case name, family
