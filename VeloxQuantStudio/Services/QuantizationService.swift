@@ -143,15 +143,16 @@ final class QuantizationService: QuantizationServiceProtocol {
         }
     }
 
+    /// Fields `build_config()` (`serve.py`) always forwards to `KVCacheConfig(...)`
+    /// from a dedicated CLI flag, unconditionally — `--bits` as `bit_width_inlier`,
+    /// `--seed` as `seed`. Also forwarding either via `--set` — which happens
+    /// whenever the selected method declares that field, since the parameter
+    /// editor pre-fills every declared field — collides as a duplicate keyword
+    /// argument and crashes the server before the model loads.
+    private static let serverOwnedOverrideKeys: Set<String> = ["bit_width_inlier", "seed"]
+
     /// Pure argument-list builder, split out so the `--bits`/`--set` interaction
     /// can be unit-tested without launching a real process.
-    ///
-    /// `--bits` always becomes `bit_width_inlier=args.bits` in `build_config()`
-    /// (`serve.py`), unconditionally. Also forwarding `bit_width_inlier` via
-    /// `--set` — which happens whenever the selected method declares that
-    /// field, since the parameter editor pre-fills every declared field —
-    /// collides as a duplicate keyword argument to `KVCacheConfig(...)` and
-    /// crashes the server before the model loads.
     static func serveArguments(for request: QuantizationRequest) -> [String] {
         var arguments = [
             "-m", "veloxquant_mlx", "serve",
@@ -161,7 +162,7 @@ final class QuantizationService: QuantizationServiceProtocol {
             "--host", "127.0.0.1",
             "--port", String(request.port),
         ]
-        for (key, value) in request.parameterOverrides where !value.isEmpty && key != "bit_width_inlier" {
+        for (key, value) in request.parameterOverrides where !value.isEmpty && !serverOwnedOverrideKeys.contains(key) {
             arguments.append(contentsOf: ["--set", "\(key)=\(value)"])
         }
         return arguments

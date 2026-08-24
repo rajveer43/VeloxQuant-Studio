@@ -196,12 +196,12 @@ struct QuantizationWorkspaceView: View {
         .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: Metrics.cardCornerRadius))
     }
 
-    /// Fields the "Bit width" stepper in `networkSection` already owns end
-    /// to end (sent as `--bits`, which `serve.py` turns into
-    /// `bit_width_inlier` itself) — editing them here would silently do
-    /// nothing, since `QuantizationService` excludes this key from `--set`
-    /// to avoid a duplicate-keyword crash in `KVCacheConfig`.
-    private static let networkOwnedFields: Set<String> = ["bit_width_inlier"]
+    /// Fields a dedicated CLI flag already owns end to end — `bit_width_inlier`
+    /// via the "Bit width" stepper (sent as `--bits`), `seed` via `serve.py`'s
+    /// own `--seed` default. Editing them here would silently do nothing,
+    /// since `QuantizationService` excludes these keys from `--set` to avoid
+    /// a duplicate-keyword crash in `KVCacheConfig`.
+    private static let networkOwnedFields: Set<String> = ["bit_width_inlier", "seed"]
 
     private func editableFields(for method: QuantizationMethod) -> [ConfigField] {
         method.fieldSchema.filter { !Self.networkOwnedFields.contains($0.name) }

@@ -153,7 +153,7 @@ struct QuantizationViewModelTests {
         #expect(viewModel.startBlockedReason == nil)
     }
 
-    @Test func serveArgumentsNeverDuplicateBitWidthInlier() {
+    @Test func serveArgumentsNeverDuplicateServerOwnedKeys() {
         let model = LocalModel(repoID: "mlx-community/Qwen3-8B-4bit", sizeBytes: 0, sizeLabel: "0", isMLXCommunity: true)
         let method = makeMethod(
             name: "turboquant_rvq",
@@ -171,7 +171,7 @@ struct QuantizationViewModelTests {
 
         #expect(arguments.filter { $0 == "--bits" }.count == 1)
         #expect(!arguments.contains("bit_width_inlier=2"))
-        #expect(arguments.contains("seed=42"))
+        #expect(!arguments.contains("seed=42"))
     }
 
     @Test func generationProfilePersistsThroughStorageService() async {
