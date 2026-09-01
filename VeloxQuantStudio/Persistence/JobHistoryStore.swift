@@ -53,6 +53,19 @@ final class JobHistoryStore {
         refresh()
     }
 
+    /// Attaches (or overwrites) a profiling result for an already-completed
+    /// job — profiling re-runs against the job's stored model/method/bits
+    /// on demand from the History screen, rather than blocking the original
+    /// serve/benchmark run. Overwrites any prior profileResultJSON, matching
+    /// benchmarkResultJSON's one-job-one-result-blob convention.
+    func attachProfile(_ job: QuantizationJob, result: ProfileResponse) {
+        if let data = try? JSONEncoder().encode(result) {
+            job.profileResultJSON = String(data: data, encoding: .utf8)
+        }
+        try? container.mainContext.save()
+        refresh()
+    }
+
     func delete(_ job: QuantizationJob) {
         container.mainContext.delete(job)
         try? container.mainContext.save()

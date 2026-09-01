@@ -22,6 +22,11 @@ final class QuantizationJob {
     // ceremony this MVP doesn't need — one job, one result blob.
     var benchmarkResultJSON: String?
 
+    // Profile results, same one-job-one-result-blob convention as
+    // benchmarkResultJSON above. Overwritten on each re-run (see
+    // JobHistoryStore.attachProfile) rather than accumulated.
+    var profileResultJSON: String?
+
     var status: JobStatus {
         get { JobStatus(rawValue: statusRaw) ?? .failed }
         set { statusRaw = newValue.rawValue }
@@ -43,7 +48,8 @@ final class QuantizationJob {
         status: JobStatus = .running,
         errorMessage: String? = nil,
         logOutput: String = "",
-        benchmarkResultJSON: String? = nil
+        benchmarkResultJSON: String? = nil,
+        profileResultJSON: String? = nil
     ) {
         self.id = id
         self.modelName = modelName
@@ -56,6 +62,7 @@ final class QuantizationJob {
         self.errorMessage = errorMessage
         self.logOutput = logOutput
         self.benchmarkResultJSON = benchmarkResultJSON
+        self.profileResultJSON = profileResultJSON
     }
 }
 
