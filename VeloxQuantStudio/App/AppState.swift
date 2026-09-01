@@ -15,6 +15,7 @@ final class AppState {
     let modelService: ModelServiceProtocol
     let quantizationService: QuantizationServiceProtocol
     let benchmarkService: BenchmarkServiceProtocol
+    let profilingService: ProfilingServiceProtocol
     let storageService: StorageServiceProtocol
     let jobHistoryStore: JobHistoryStore
 
@@ -36,6 +37,7 @@ final class AppState {
         let history = JobHistoryStore()
         let quant = QuantizationService(pythonEnvironment: python, jobHistoryStore: history)
         let bench = BenchmarkService(pythonEnvironment: python, jobHistoryStore: history)
+        let profiling = ProfilingService(pythonEnvironment: python, jobHistoryStore: history)
 
         self.storageService = storage
         self.pythonEnvironment = python
@@ -45,6 +47,7 @@ final class AppState {
         self.jobHistoryStore = history
         self.quantizationService = quant
         self.benchmarkService = bench
+        self.profilingService = profiling
 
         self.authViewModel = AuthViewModel(authService: auth)
         self.dashboardViewModel = DashboardViewModel(
@@ -59,7 +62,7 @@ final class AppState {
             modelService: models,
             storageService: storage
         )
-        self.historyViewModel = HistoryViewModel(jobHistoryStore: history)
+        self.historyViewModel = HistoryViewModel(jobHistoryStore: history, profilingService: profiling)
     }
 }
 

@@ -90,6 +90,8 @@ private struct JobDetailView: View {
                     BenchmarkResultCard(job: job, result: result)
                 }
 
+                profileSection
+
                 if !job.logOutput.isEmpty {
                     logSection
                 }
@@ -108,6 +110,44 @@ private struct JobDetailView: View {
         .confirmationDialog("Delete this job record?", isPresented: $pendingDeletion, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { viewModel.delete(job) }
             Button("Cancel", role: .cancel) {}
+        }
+        .onDisappear { viewModel.cancelProfile(for: job) }
+    }
+
+    @ViewBuilder
+    private var profileSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Profile").font(.headline)
+                Spacer()
+                if !viewModel.isProfiling(job) {
+                    Button {
+                        viewModel.runProfile(for: job)
+                    } label: {
+                        Label(
+                            viewModel.profileResult(for: job) == nil ? "Profile This Job" : "Re-run Profile",
+                            systemImage: "chart.bar.xaxis"
+                        )
+                    }
+                }
+            }
+
+            if viewModel.isProfiling(job) {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Profiling — running a real generation pass, this can take a while…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let error = viewModel.profileError(for: job) {
+                ErrorBanner(message: error)
+            }
+
+            if let result = viewModel.profileResult(for: job) {
+                ProfileResultCard(result: result)
+            }
         }
     }
 
