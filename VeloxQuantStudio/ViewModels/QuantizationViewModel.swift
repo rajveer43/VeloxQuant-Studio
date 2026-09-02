@@ -83,7 +83,13 @@ final class QuantizationViewModel {
         async let modelsTask = try? modelService.discoverCachedModels()
         do {
             let response = try await modelService.fetchAvailableMethods()
-            availableMethods = response.methods.sorted { $0.name < $1.name }
+            // Methods in an unrecognized family (e.g. a future cross-model
+            // transfer entry, see issue #42) work structurally differently
+            // from a single-model cache method and don't belong in this
+            // picker — excluded here so no derived list can surface one.
+            availableMethods = response.methods
+                .filter { $0.family != .unknown }
+                .sorted { $0.name < $1.name }
             defaultServeMethod = response.defaultServeMethod
             accountingNote = response.accountingNote
             if selectedMethod == nil {

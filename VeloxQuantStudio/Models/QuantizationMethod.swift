@@ -62,18 +62,53 @@ struct QuantizationMethod: Identifiable, Codable, Hashable {
 
 /// Mirrors `MethodFamily` in `registry.py` — what the method primarily does
 /// to the cache. Drives the method browser's filter control.
-enum MethodFamily: String, Codable, CaseIterable, Identifiable {
+///
+/// Decodes leniently: an unrecognized raw value (e.g. a future `transfer`
+/// family for cross-model KV transfer, which works structurally differently
+/// from every cache method here — see issue #42) becomes `.unknown` rather
+/// than failing to decode, since `[QuantizationMethod]` decode is all-or-
+/// nothing and one bad `family` would otherwise drop the entire method list.
+enum MethodFamily: Codable, CaseIterable, Identifiable, Hashable {
     case quantization
     case eviction
     case hybrid
+    case unknown
+
+    static var allCases: [MethodFamily] { [.quantization, .eviction, .hybrid] }
 
     var id: String { rawValue }
+
+    private var rawValue: String {
+        switch self {
+        case .quantization: "quantization"
+        case .eviction: "eviction"
+        case .hybrid: "hybrid"
+        case .unknown: "unknown"
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        switch raw {
+        case "quantization": self = .quantization
+        case "eviction": self = .eviction
+        case "hybrid": self = .hybrid
+        default: self = .unknown
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 
     var label: String {
         switch self {
         case .quantization: "Quantization"
         case .eviction: "Eviction"
         case .hybrid: "Hybrid"
+        case .unknown: "Unknown"
         }
     }
 }
