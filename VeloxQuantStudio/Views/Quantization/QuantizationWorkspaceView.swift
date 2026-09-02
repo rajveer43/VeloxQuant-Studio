@@ -30,6 +30,7 @@ struct QuantizationWorkspaceView: View {
                 }
 
                 modelPicker
+                autoConfigCard
                 if !viewModel.availablePresets.isEmpty {
                     presetPicker
                 }
@@ -73,6 +74,62 @@ struct QuantizationWorkspaceView: View {
                 .pickerStyle(.menu)
             }
         }
+    }
+
+    private var autoConfigCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Recommended for this Mac").font(.headline)
+            Text("Picks a method, bit-width, and group size from a small pool (turboquant_rvq, kivi, kvquant, gear) based on expected sequence length and this Mac's memory.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Text("Expected sequence length")
+                Spacer()
+                TextField(
+                    "Sequence length",
+                    value: Binding(get: { viewModel.autoConfigSeqLen }, set: { viewModel.autoConfigSeqLen = $0 }),
+                    format: .number.grouping(.never)
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 100)
+                .multilineTextAlignment(.trailing)
+            }
+
+            if viewModel.isLoadingRecommendation {
+                ProgressView().controlSize(.small)
+            } else if let error = viewModel.recommendationError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            } else if let recommended = viewModel.recommendedConfig {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        StatusBadge(text: recommended.config.method, tint: .accentColor)
+                        Spacer()
+                        Button("Use this config") {
+                            viewModel.applyRecommendedConfig()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                    Text(recommended.reason)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(10)
+                .background(.quaternary.opacity(0.2), in: RoundedRectangle(cornerRadius: 8))
+            }
+
+            Button(viewModel.recommendedConfig == nil ? "Get recommendation" : "Refresh recommendation") {
+                Task { await viewModel.recommendConfig() }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(viewModel.isLoadingRecommendation)
+        }
+        .padding(12)
+        .background(.blue.opacity(0.05), in: RoundedRectangle(cornerRadius: Metrics.cardCornerRadius))
     }
 
     private var presetPicker: some View {
