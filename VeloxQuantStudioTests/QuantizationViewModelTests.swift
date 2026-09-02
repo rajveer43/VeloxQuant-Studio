@@ -124,6 +124,20 @@ struct QuantizationViewModelTests {
         #expect(viewModel.parameterOverrides["budget"] == "64")
     }
 
+    /// Issue #42: a method in an unrecognized family (e.g. a future
+    /// cross-model transfer entry, which works structurally differently
+    /// from every single-model cache method) must never surface in the
+    /// picker, even though the underlying registry fetch succeeds.
+    @Test func unknownFamilyMethodsAreExcludedFromAvailableMethods() async {
+        let quant = makeMethod(name: "turboquant_rvq", family: .quantization)
+        let transfer = makeMethod(name: "cross_model_transfer", family: .unknown, serveTier: .notTrimmable)
+        let viewModel = await makeViewModel(methods: [quant, transfer])
+
+        #expect(viewModel.availableMethods.map(\.name) == ["turboquant_rvq"])
+        #expect(viewModel.servableMethods.map(\.name) == ["turboquant_rvq"])
+        #expect(viewModel.unsupportedMethods.isEmpty)
+    }
+
     @Test func familyFilterNarrowsServableAndUnsupportedLists() async {
         let quant = makeMethod(name: "quant_method", family: .quantization)
         let evict = makeMethod(name: "evict_method", family: .eviction)

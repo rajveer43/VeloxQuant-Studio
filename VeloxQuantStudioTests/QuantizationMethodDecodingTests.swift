@@ -94,6 +94,63 @@ struct QuantizationMethodDecodingTests {
         #expect(method.docsURL == URL(string: "https://veloxquant-mlx.netlify.app/docs/algorithms/kivi"))
     }
 
+    /// Guards against the failure mode fixed for issue #42: a method whose
+    /// `family` the app doesn't recognize yet (e.g. a future cross-model
+    /// `transfer` entry) must decode as `.unknown` rather than throwing and
+    /// dropping the whole `methods --json` array, since `[QuantizationMethod]`
+    /// decode is all-or-nothing.
+    @Test func unrecognizedFamilyDecodesAsUnknownRatherThanFailing() throws {
+        let json = """
+        {
+          "schema_version": 1,
+          "default_serve_method": "turboquant_rvq",
+          "accounting_only": true,
+          "accounting_note": null,
+          "methods": [
+            {
+              "name": "cross_model_transfer",
+              "family": "transfer",
+              "serve_tier": "not_trimmable",
+              "serve_tier_label": "Not trimmable",
+              "is_servable": false,
+              "blurb": "Cross-model KV cache transfer.",
+              "config_fields": [],
+              "field_schema": [],
+              "coverage": "none",
+              "coverage_label": "Not reported",
+              "paper_deviation": null,
+              "is_adapted": true,
+              "unsupported_reason": null,
+              "docs_url": null
+            },
+            {
+              "name": "turboquant_rvq",
+              "family": "quantization",
+              "serve_tier": "accounting_only",
+              "serve_tier_label": "Serves (accounting-only)",
+              "is_servable": true,
+              "blurb": "Residual vector quantization.",
+              "config_fields": [],
+              "field_schema": [],
+              "coverage": "keys_only",
+              "coverage_label": "Keys only",
+              "paper_deviation": null,
+              "is_adapted": false,
+              "unsupported_reason": null,
+              "docs_url": null
+            }
+          ]
+        }
+        """
+
+        let data = try #require(json.data(using: .utf8))
+        let response = try JSONDecoder().decode(MethodsResponse.self, from: data)
+
+        #expect(response.methods.count == 2)
+        let transfer = try #require(response.methods.first { $0.name == "cross_model_transfer" })
+        #expect(transfer.family == .unknown)
+    }
+
     @Test func decodesServeReadyHandshake() throws {
         let json = """
         {
