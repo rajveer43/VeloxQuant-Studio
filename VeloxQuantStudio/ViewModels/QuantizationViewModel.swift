@@ -6,6 +6,8 @@ import Observation
 final class QuantizationViewModel {
     private let quantizationService: QuantizationServiceProtocol
     private let modelService: ModelServiceProtocol
+    private let autoConfigService: AutoConfigServiceProtocol
+    private let hardwareService: HardwareServiceProtocol
 
     private(set) var availableModels: [LocalModel] = []
     private(set) var availableMethods: [QuantizationMethod] = []
@@ -22,6 +24,17 @@ final class QuantizationViewModel {
     var familyFilter: MethodFamily?
 
     private(set) var activeJob: QuantizationJobHandle?
+
+    /// User-adjustable inputs for the "Recommended for this Mac" card. Only
+    /// `seqLen` is exposed in the UI today (the axis `select_kv_cache_config`
+    /// actually branches on for the servable pool); `headDim`/`nLayers`
+    /// default to `WorkloadSpec`'s own Python defaults since Studio has no
+    /// per-model architecture introspection yet (`LocalModel` carries no
+    /// head_dim/n_layers — see issue #44's open question on this).
+    var autoConfigSeqLen: Int = 4_096
+    private(set) var recommendedConfig: AutoConfigResponse?
+    private(set) var isLoadingRecommendation = false
+    private(set) var recommendationError: String?
 
     private let storageService: StorageServiceProtocol
     var generationProfile: GenerationProfile {
@@ -67,11 +80,15 @@ final class QuantizationViewModel {
     init(
         quantizationService: QuantizationServiceProtocol,
         modelService: ModelServiceProtocol,
-        storageService: StorageServiceProtocol
+        storageService: StorageServiceProtocol,
+        autoConfigService: AutoConfigServiceProtocol,
+        hardwareService: HardwareServiceProtocol
     ) {
         self.quantizationService = quantizationService
         self.modelService = modelService
         self.storageService = storageService
+        self.autoConfigService = autoConfigService
+        self.hardwareService = hardwareService
         self.generationProfile = storageService.generationProfile
     }
 
@@ -127,6 +144,47 @@ final class QuantizationViewModel {
         bitWidth = preset.bitWidth
         for (key, value) in preset.parameterOverrides {
             parameterOverrides[key] = value
+        }
+    }
+
+    /// Fetches a "Recommended for this Mac" pick from `select_kv_cache_config()`
+    /// for the current `autoConfigSeqLen`, using this Mac's real memory from
+    /// `HardwareService` (sysctl) rather than letting the subprocess
+    /// re-detect it. Additive to manual selection: the result only becomes
+    /// the active method/bits/overrides if the user taps "Use this config"
+    /// (`applyRecommendedConfig()`).
+    func recommendConfig() async {
+        isLoadingRecommendation = true
+        recommendationError = nil
+        defer { isLoadingRecommendation = false }
+
+        do {
+            recommendedConfig = try await autoConfigService.recommendConfig(
+                request: AutoConfigRequest(seqLen: autoConfigSeqLen, hardware: hardwareService.currentHardware())
+            )
+        } catch ServiceError.pythonNotConfigured {
+            recommendationError = "No Python interpreter configured. Set one in Settings → Compute."
+        } catch {
+            recommendationError = "Could not compute a recommendation. This may require a newer VeloxQuant-MLX with the auto-config CLI."
+        }
+    }
+
+    /// Pre-fills the manual form from the current recommendation — mirrors
+    /// `applyPreset`'s atomic apply (method + bits + overrides land together)
+    /// so the auto path never leaves the form in a half-updated state.
+    func applyRecommendedConfig() {
+        guard let recommended = recommendedConfig,
+              let method = availableMethods.first(where: { $0.name == recommended.config.method }) else { return }
+        selectMethod(method)
+        if let bits = recommended.config.knobs["bit_width_inlier"], case .int(let value) = bits {
+            bitWidth = value
+        } else if let bits = recommended.config.knobs["gear_bits"], case .int(let value) = bits {
+            bitWidth = value
+        } else if let bits = recommended.config.knobs["kvquant_bits"], case .int(let value) = bits {
+            bitWidth = value
+        }
+        for (key, value) in recommended.config.knobs {
+            parameterOverrides[key] = value.displayString
         }
     }
 

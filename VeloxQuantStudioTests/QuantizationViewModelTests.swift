@@ -29,6 +29,30 @@ private final class FakeQuantizationService: QuantizationServiceProtocol {
     func stopJob(_ handle: QuantizationJobHandle) {}
 }
 
+@MainActor
+private final class FakeAutoConfigService: AutoConfigServiceProtocol {
+    var result: Result<AutoConfigResponse, Error> = .failure(ServiceError.pythonNotConfigured)
+    private(set) var lastRequest: AutoConfigRequest?
+
+    func recommendConfig(request: AutoConfigRequest) async throws -> AutoConfigResponse {
+        lastRequest = request
+        return try result.get()
+    }
+}
+
+private struct FakeHardwareService: HardwareServiceProtocol {
+    var hardware = HardwareInfo(
+        chipName: "Apple M3",
+        chipFamily: .m3,
+        performanceCoreCount: 4,
+        efficiencyCoreCount: 4,
+        gpuCoreCount: nil,
+        unifiedMemoryBytes: 16 * 1024 * 1024 * 1024,
+        macOSVersion: "macOS 15.0.0"
+    )
+    func currentHardware() -> HardwareInfo { hardware }
+}
+
 private final class FakeStorageService: StorageServiceProtocol, @unchecked Sendable {
     var modelStorageLocation: URL = FileManager.default.temporaryDirectory
     func setModelStorageLocation(_ url: URL) { modelStorageLocation = url }
@@ -64,7 +88,11 @@ private func makeMethod(
 
 @MainActor
 struct QuantizationViewModelTests {
-    private func makeViewModel(methods: [QuantizationMethod], models: [LocalModel] = [LocalModel(repoID: "m", sizeBytes: 0, sizeLabel: "0", isMLXCommunity: false)]) async -> QuantizationViewModel {
+    private func makeViewModel(
+        methods: [QuantizationMethod],
+        models: [LocalModel] = [LocalModel(repoID: "m", sizeBytes: 0, sizeLabel: "0", isMLXCommunity: false)],
+        autoConfigService: FakeAutoConfigService = FakeAutoConfigService()
+    ) async -> QuantizationViewModel {
         let modelService = FakeModelService()
         modelService.methodsResponse = MethodsResponse(
             schemaVersion: 1,
@@ -77,7 +105,9 @@ struct QuantizationViewModelTests {
         let viewModel = QuantizationViewModel(
             quantizationService: FakeQuantizationService(),
             modelService: modelService,
-            storageService: FakeStorageService()
+            storageService: FakeStorageService(),
+            autoConfigService: autoConfigService,
+            hardwareService: FakeHardwareService()
         )
         await viewModel.loadContext()
         return viewModel
@@ -122,6 +152,73 @@ struct QuantizationViewModelTests {
         viewModel.selectMethod(methodB)
         #expect(viewModel.parameterOverrides["seed"] == nil)
         #expect(viewModel.parameterOverrides["budget"] == "64")
+    }
+
+    /// Issue #44: recommendConfig() populates recommendedConfig on success,
+    /// and applyRecommendedConfig() then applies method/bits/knobs atomically
+    /// to the manual form, mirroring applyPreset's atomic-apply guarantee.
+    @Test func recommendConfigPopulatesRecommendationOnSuccess() async {
+        let auto = FakeAutoConfigService()
+        auto.result = .success(
+            AutoConfigResponse(
+                config: AutoConfigResponse.RecommendedConfig(
+                    method: "turboquant_rvq",
+                    headDim: 128,
+                    knobs: ["bit_width_inlier": .int(4)]
+                ),
+                reason: "short context"
+            )
+        )
+        let viewModel = await makeViewModel(methods: [makeMethod(name: "turboquant_rvq")], autoConfigService: auto)
+
+        await viewModel.recommendConfig()
+
+        #expect(viewModel.recommendedConfig?.config.method == "turboquant_rvq")
+        #expect(viewModel.recommendationError == nil)
+        #expect(viewModel.isLoadingRecommendation == false)
+    }
+
+    @Test func recommendConfigSurfacesPythonNotConfiguredError() async {
+        let auto = FakeAutoConfigService()
+        auto.result = .failure(ServiceError.pythonNotConfigured)
+        let viewModel = await makeViewModel(methods: [makeMethod(name: "turboquant_rvq")], autoConfigService: auto)
+
+        await viewModel.recommendConfig()
+
+        #expect(viewModel.recommendedConfig == nil)
+        #expect(viewModel.recommendationError != nil)
+    }
+
+    @Test func applyRecommendedConfigSetsMethodAndBitsAtomically() async {
+        let auto = FakeAutoConfigService()
+        auto.result = .success(
+            AutoConfigResponse(
+                config: AutoConfigResponse.RecommendedConfig(
+                    method: "kivi_method",
+                    headDim: 128,
+                    knobs: ["bit_width_inlier": .int(2), "kivi_group_size": .int(64)]
+                ),
+                reason: "mid-length context"
+            )
+        )
+        let kivi = makeMethod(name: "kivi_method")
+        let viewModel = await makeViewModel(methods: [kivi], autoConfigService: auto)
+
+        await viewModel.recommendConfig()
+        viewModel.applyRecommendedConfig()
+
+        #expect(viewModel.selectedMethod?.name == "kivi_method")
+        #expect(viewModel.bitWidth == 2)
+        #expect(viewModel.parameterOverrides["kivi_group_size"] == "64")
+    }
+
+    @Test func applyRecommendedConfigDoesNothingWithoutARecommendation() async {
+        let viewModel = await makeViewModel(methods: [makeMethod(name: "turboquant_rvq")])
+        let originalMethod = viewModel.selectedMethod
+
+        viewModel.applyRecommendedConfig()
+
+        #expect(viewModel.selectedMethod?.name == originalMethod?.name)
     }
 
     /// Issue #42: a method in an unrecognized family (e.g. a future
@@ -194,7 +291,9 @@ struct QuantizationViewModelTests {
         let viewModel = QuantizationViewModel(
             quantizationService: FakeQuantizationService(),
             modelService: modelService,
-            storageService: storage
+            storageService: storage,
+            autoConfigService: FakeAutoConfigService(),
+            hardwareService: FakeHardwareService()
         )
 
         viewModel.generationProfile.temperature = 1.1
