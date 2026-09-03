@@ -119,6 +119,15 @@ private struct AuthFormCard: View {
             .disabled(!viewModel.isFormValid || viewModel.isLoading)
             .keyboardShortcut(.defaultAction)
 
+            if viewModel.mode == .signUp {
+                HStack(spacing: 4) {
+                    Text("By creating an account, you agree to our")
+                        .foregroundStyle(.secondary)
+                    Link("Privacy Policy", destination: URL(string: "https://veloxquant-mlx.netlify.app/privacy.html")!)
+                }
+                .font(.caption)
+            }
+
             HStack {
                 Text(viewModel.mode == .signIn ? "Don't have an account?" : "Already have an account?")
                     .foregroundStyle(.secondary)

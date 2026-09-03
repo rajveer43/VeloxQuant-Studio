@@ -53,7 +53,7 @@ targets:
       base:
         PRODUCT_NAME: VeloxQuantStudio
         PRODUCT_BUNDLE_IDENTIFIER: com.veloxquant.studio
-        MARKETING_VERSION: "0.1.0"
+        MARKETING_VERSION: "0.1.1"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
