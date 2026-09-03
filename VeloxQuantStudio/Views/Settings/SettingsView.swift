@@ -116,7 +116,15 @@ private struct PrivacySettingsTab: View {
                         appState.storageService.setTelemetryEnabled(newValue)
                     }
             } footer: {
-                Text("VeloxQuant Studio never uploads your models, prompts, or job logs. This only covers anonymous feature-usage counts, and is off by default.")
+                Text("VeloxQuant Studio never uploads your models, prompts, or job logs. This toggle is reserved for future anonymous feature-usage counts — no usage data is collected or sent yet, regardless of this setting.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Link("Privacy Policy", destination: URL(string: "https://veloxquant-mlx.netlify.app/privacy.html")!)
+            } footer: {
+                Text("Covers what this app collects and where your account data (email, session) is stored.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -134,7 +142,7 @@ private struct AboutSettingsTab: View {
                 .foregroundStyle(Color.accentColor)
             Text("VeloxQuant Studio")
                 .font(.title2.weight(.semibold))
-            Text("Version 0.1.0")
+            Text("Version 0.1.1")
                 .font(.callout)
                 .foregroundStyle(.secondary)
             Text("A native macOS control app for VeloxQuant-MLX — Apple Silicon KV-cache compression for local LLM inference.")
@@ -143,6 +151,8 @@ private struct AboutSettingsTab: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 380)
             Link("VeloxQuant-MLX on GitHub", destination: URL(string: "https://github.com/rajveer43/VeloxQuant-MLX")!)
+                .font(.callout)
+            Link("Privacy Policy", destination: URL(string: "https://veloxquant-mlx.netlify.app/privacy.html")!)
                 .font(.callout)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
