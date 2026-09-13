@@ -264,6 +264,49 @@ struct QuantizationViewModelTests {
         #expect(viewModel.startBlockedReason == nil)
     }
 
+    /// Issue #2: VeloxQuant-MLX #31 fixed `adakv`'s degenerate default
+    /// (`target_avg_bits == lo_bit`, which flattens every head to the same
+    /// bit-width) by moving the default off the boundary — but a user can
+    /// still retype that exact degeneracy into the free-text parameter
+    /// editor, and Python only warns to logs, not the app. `parameterWarning`
+    /// catches it client-side before Start is pressed.
+    private func adakvFields() -> [ConfigField] {
+        [
+            ConfigField(name: "adakv_target_avg_bits", type: "float", optional: false, defaultValue: .double(2.5), help: nil),
+            ConfigField(name: "adakv_lo_bit", type: "int", optional: false, defaultValue: .int(2), help: nil),
+            ConfigField(name: "adakv_hi_bit", type: "int", optional: false, defaultValue: .int(4), help: nil),
+        ]
+    }
+
+    @Test func parameterWarningFlagsDegenerateAdaKVTarget() async {
+        let adakv = makeMethod(name: "adakv", fieldSchema: adakvFields())
+        let viewModel = await makeViewModel(methods: [adakv])
+        viewModel.selectMethod(adakv)
+
+        viewModel.parameterOverrides["adakv_target_avg_bits"] = "2"
+
+        #expect(viewModel.parameterWarning != nil)
+    }
+
+    @Test func parameterWarningIsNilForAdaptiveAdaKVTarget() async {
+        let adakv = makeMethod(name: "adakv", fieldSchema: adakvFields())
+        let viewModel = await makeViewModel(methods: [adakv])
+        viewModel.selectMethod(adakv)
+
+        #expect(viewModel.parameterWarning == nil)
+    }
+
+    @Test func parameterWarningIsNilForOtherMethods() async {
+        let rvq = makeMethod(
+            name: "turboquant_rvq",
+            fieldSchema: [ConfigField(name: "bit_width_inlier", type: "int", optional: false, defaultValue: .int(2), help: nil)]
+        )
+        let viewModel = await makeViewModel(methods: [rvq])
+        viewModel.selectMethod(rvq)
+
+        #expect(viewModel.parameterWarning == nil)
+    }
+
     @Test func serveArgumentsNeverDuplicateServerOwnedKeys() {
         let model = LocalModel(repoID: "mlx-community/Qwen3-8B-4bit", sizeBytes: 0, sizeLabel: "0", isMLXCommunity: true)
         let method = makeMethod(
