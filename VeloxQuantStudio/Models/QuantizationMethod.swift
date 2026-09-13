@@ -31,15 +31,24 @@ struct QuantizationMethod: Identifiable, Codable, Hashable {
     /// `serveTierLabel` collapses `honest_bytes`, `accounting_only`, and
     /// `not_trimmable` into the same "available" string (registry.py's
     /// `ServeTier.label`), so a method whose byte savings are estimated
-    /// rather than measured, or whose job can't be trimmed on stop/resume,
-    /// looks identical in the picker to a fully-honest method. This surfaces
-    /// the distinction the generic banner otherwise hides. See issue #43.
+    /// rather than measured, or whose cache can't be trimmed, looks
+    /// identical in the picker to a fully-honest method. This surfaces the
+    /// distinction the generic banner otherwise hides. See issue #43.
+    ///
+    /// `notTrimmable`'s caption was previously worded around stop/resume,
+    /// which isn't what `is_trimmable() == False` actually affects (see
+    /// `registry.py`'s `_run_probe`, and issue #3's `amc` verification):
+    /// `mlx_lm.server`'s LRU prompt cache only reuses a *trimmed* longer
+    /// prefix (`fetch_nearest_cache` -> `can_trim_prompt_cache`) — a
+    /// not-trimmable method skips that path, so every request reprocesses
+    /// its full prompt rather than reusing an overlapping prefix from an
+    /// earlier request in the same server session.
     var serveTierCaption: String? {
         switch serveTier {
         case .accountingOnly:
             "Reported savings are estimated, not measured from live cache bytes."
         case .notTrimmable:
-            "This method can't trim its prompt cache — stopping a job may not resume cleanly."
+            "This method can't reuse a cached prompt prefix across requests — every request reprocesses its full prompt from scratch."
         case .honestBytes, .crashes:
             nil
         }

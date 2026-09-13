@@ -239,11 +239,17 @@ struct QuantizationWorkspaceView: View {
             }
 
             if let reason = method.unsupportedReason {
+                // Python's `unsupported_reason` is dual-purpose: for a
+                // `crashes`-tier method it explains why Start is blocked
+                // (red, matches `startBlockedReason`); for a servable-but-
+                // limited tier like `not_trimmable` (e.g. `amc`, issue #3)
+                // it's the same explanatory text as `serveTierCaption`,
+                // just fuller — shown once, in a color that doesn't read as
+                // an error for a method the user can still start.
                 Text(reason)
                     .font(.caption)
-                    .foregroundStyle(.red)
-            }
-            if let caption = method.serveTierCaption {
+                    .foregroundStyle(method.isServable ? Color.secondary : Color.red)
+            } else if let caption = method.serveTierCaption {
                 Text(caption)
                     .font(.caption)
                     .foregroundStyle(.secondary)

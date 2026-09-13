@@ -185,6 +185,40 @@ struct QuantizationMethodDecodingTests {
         #expect(try method(serveTier: "crashes").serveTierCaption == nil)
     }
 
+    /// Issue #3: `amc` is `is_servable == true` (a user can pick it and hit
+    /// Start) *and* carries a non-nil `unsupported_reason` — Python's field
+    /// is dual-purpose, reused for a servable-but-limited tier's
+    /// explanation, not just for why Start is blocked. The view must not
+    /// treat a servable method's `unsupported_reason` as a blocking error
+    /// (red text, "Unsupported" section): `isServable` is the only signal
+    /// that should govern that, `unsupported_reason` being non-nil is not.
+    @Test func servableMethodCanCarryNonNilUnsupportedReason() throws {
+        let json = """
+        {
+          "name": "amc",
+          "family": "eviction",
+          "serve_tier": "not_trimmable",
+          "serve_tier_label": "available (no prompt-cache trimming)",
+          "is_servable": true,
+          "blurb": "AMC: adaptive memory compression.",
+          "config_fields": ["bit_width_inlier", "seed"],
+          "field_schema": [],
+          "coverage": "none",
+          "coverage_label": "no estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": "serves correctly, but reports is_trimmable() == False, so mlx_lm.server cannot trim its prompt cache.",
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let amc = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(amc.isServable)
+        #expect(amc.unsupportedReason != nil)
+        #expect(amc.serveTier == .notTrimmable)
+    }
+
     @Test func decodesServeReadyHandshake() throws {
         let json = """
         {
