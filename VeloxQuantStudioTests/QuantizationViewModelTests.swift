@@ -257,18 +257,19 @@ struct QuantizationViewModelTests {
         #expect(viewModel.servableMethods.map(\.name) == ["evict_method"])
     }
 
-    /// Issue #3 (`amc`, eviction) and #4 (`anchorkv`, hybrid): both decode to
-    /// `not_trimmable` with the exact same generic `unsupported_reason`
-    /// template from `registry.py`, so the fix must be generic across
-    /// families, not keyed to one method name. `not_trimmable` is still
-    /// `is_servable == true` — the method belongs in the "Servable" section
-    /// of the picker, and Start must stay enabled, even though it carries a
-    /// non-nil `unsupportedReason` (Python reuses that field for the tier's
-    /// explanatory text, not only for why a `crashes`-tier method is
-    /// blocked).
+    /// Issue #3 (`amc`, eviction), #4 (`anchorkv`, hybrid), and #6 (`cam`,
+    /// eviction): all three decode to `not_trimmable` with the exact same
+    /// generic `unsupported_reason` template from `registry.py`, so the fix
+    /// must be generic across families and methods, not keyed to one name.
+    /// `not_trimmable` is still `is_servable == true` — the method belongs
+    /// in the "Servable" section of the picker, and Start must stay
+    /// enabled, even though it carries a non-nil `unsupportedReason`
+    /// (Python reuses that field for the tier's explanatory text, not only
+    /// for why a `crashes`-tier method is blocked).
     @Test(arguments: [
         ("amc", MethodFamily.eviction),
         ("anchorkv", MethodFamily.hybrid),
+        ("cam", MethodFamily.eviction),
     ])
     func notTrimmableMethodIsServableAndDoesNotBlockStart(name: String, family: MethodFamily) async {
         let method = makeMethod(name: name, family: family, serveTier: .notTrimmable)

@@ -58,6 +58,42 @@ struct KVStatsTests {
         #expect(stats.values?.compressedBytes == 1024)
     }
 
+    /// Issue #6 (`cam`): captured from a real `GET /v1/kv/stats` response
+    /// after serving `cam` end-to-end and sending a real 300-token chat
+    /// completion. `tokens: {seen: 0, retained: 0}` reflects `_LIVE_CACHES`
+    /// snapshot timing in `telemetry.py` (records the most recently *built*
+    /// cache, not necessarily mid-request state) rather than a decode bug —
+    /// the important thing this locks in is the shape (real ints, not nil,
+    /// for an eviction method with `coverage: none`).
+    @Test func decodesLiveCaMPayload() throws {
+        let json = """
+        {
+          "method": "cam",
+          "bits": 2,
+          "accounting_only": true,
+          "coverage": "none",
+          "keys": null,
+          "values": null,
+          "tokens": {"seen": 0, "retained": 0},
+          "memory": {
+            "rss_bytes": 1111867392,
+            "mlx_active_bytes": 720672796,
+            "mlx_peak_bytes": 796525421,
+            "source": "measured"
+          }
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let stats = try JSONDecoder().decode(KVStats.self, from: data)
+
+        #expect(stats.method == "cam")
+        #expect(stats.keys == nil)
+        #expect(stats.values == nil)
+        #expect(stats.tokens?.seen == 0)
+        #expect(stats.tokens?.retained == 0)
+        #expect(stats.notReportedReason == nil)
+    }
+
     /// Eviction methods (h2o, snapkv, …) report tokens seen/retained instead
     /// of byte ratios — `coverage == "none"` per `TelemetryCoverage`.
     @Test func decodesTokenCountsForEvictionMethods() throws {
