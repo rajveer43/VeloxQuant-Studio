@@ -257,17 +257,25 @@ struct QuantizationViewModelTests {
         #expect(viewModel.servableMethods.map(\.name) == ["evict_method"])
     }
 
-    /// Issue #3: `amc` is `not_trimmable` but still `is_servable == true` —
-    /// it belongs in the "Servable" section of the picker, and Start must
-    /// stay enabled, even though it carries a non-nil `unsupportedReason`
-    /// (Python reuses that field for the tier's explanatory text, not only
-    /// for why a `crashes`-tier method is blocked).
-    @Test func notTrimmableMethodIsServableAndDoesNotBlockStart() async {
-        let amc = makeMethod(name: "amc", family: .eviction, serveTier: .notTrimmable)
-        let viewModel = await makeViewModel(methods: [amc])
-        viewModel.selectMethod(amc)
+    /// Issue #3 (`amc`, eviction) and #4 (`anchorkv`, hybrid): both decode to
+    /// `not_trimmable` with the exact same generic `unsupported_reason`
+    /// template from `registry.py`, so the fix must be generic across
+    /// families, not keyed to one method name. `not_trimmable` is still
+    /// `is_servable == true` — the method belongs in the "Servable" section
+    /// of the picker, and Start must stay enabled, even though it carries a
+    /// non-nil `unsupportedReason` (Python reuses that field for the tier's
+    /// explanatory text, not only for why a `crashes`-tier method is
+    /// blocked).
+    @Test(arguments: [
+        ("amc", MethodFamily.eviction),
+        ("anchorkv", MethodFamily.hybrid),
+    ])
+    func notTrimmableMethodIsServableAndDoesNotBlockStart(name: String, family: MethodFamily) async {
+        let method = makeMethod(name: name, family: family, serveTier: .notTrimmable)
+        let viewModel = await makeViewModel(methods: [method])
+        viewModel.selectMethod(method)
 
-        #expect(viewModel.servableMethods.map(\.name) == ["amc"])
+        #expect(viewModel.servableMethods.map(\.name) == [name])
         #expect(viewModel.unsupportedMethods.isEmpty)
         #expect(viewModel.startBlockedReason == nil)
         #expect(viewModel.canStart)
