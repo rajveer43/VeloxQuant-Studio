@@ -81,7 +81,17 @@ private func makeMethod(
         coverageLabel: "Not reported",
         paperDeviation: nil,
         isAdapted: false,
-        unsupportedReason: serveTier.isServable ? nil : "\(name) does not subclass mlx_lm KVCache",
+        // Mirrors registry.py's _run_probe: NOT_TRIMMABLE is servable but
+        // still carries a reason (Python reuses this field for a
+        // servable-but-limited tier's explanation, not only for why a
+        // crashes-tier method is blocked — see issue #3).
+        unsupportedReason: {
+            switch serveTier {
+            case .crashes: "\(name) does not subclass mlx_lm KVCache"
+            case .notTrimmable: "\(name) reports is_trimmable() == False"
+            case .honestBytes, .accountingOnly: nil
+            }
+        }(),
         docsURLString: nil
     )
 }
@@ -245,6 +255,22 @@ struct QuantizationViewModelTests {
         viewModel.familyFilter = .eviction
         #expect(viewModel.filteredMethods.map(\.name) == ["evict_method"])
         #expect(viewModel.servableMethods.map(\.name) == ["evict_method"])
+    }
+
+    /// Issue #3: `amc` is `not_trimmable` but still `is_servable == true` —
+    /// it belongs in the "Servable" section of the picker, and Start must
+    /// stay enabled, even though it carries a non-nil `unsupportedReason`
+    /// (Python reuses that field for the tier's explanatory text, not only
+    /// for why a `crashes`-tier method is blocked).
+    @Test func notTrimmableMethodIsServableAndDoesNotBlockStart() async {
+        let amc = makeMethod(name: "amc", family: .eviction, serveTier: .notTrimmable)
+        let viewModel = await makeViewModel(methods: [amc])
+        viewModel.selectMethod(amc)
+
+        #expect(viewModel.servableMethods.map(\.name) == ["amc"])
+        #expect(viewModel.unsupportedMethods.isEmpty)
+        #expect(viewModel.startBlockedReason == nil)
+        #expect(viewModel.canStart)
     }
 
     @Test func startBlockedReasonNamesTierForCrashingMethod() async {
