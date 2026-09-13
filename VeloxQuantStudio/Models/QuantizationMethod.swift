@@ -28,6 +28,23 @@ struct QuantizationMethod: Identifiable, Codable, Hashable {
     /// mode for a value we only ever use to open a link.
     var docsURL: URL? { docsURLString.flatMap(URL.init(string:)) }
 
+    /// `serveTierLabel` collapses `honest_bytes`, `accounting_only`, and
+    /// `not_trimmable` into the same "available" string (registry.py's
+    /// `ServeTier.label`), so a method whose byte savings are estimated
+    /// rather than measured, or whose job can't be trimmed on stop/resume,
+    /// looks identical in the picker to a fully-honest method. This surfaces
+    /// the distinction the generic banner otherwise hides. See issue #43.
+    var serveTierCaption: String? {
+        switch serveTier {
+        case .accountingOnly:
+            "Reported savings are estimated, not measured from live cache bytes."
+        case .notTrimmable:
+            "This method can't trim its prompt cache — stopping a job may not resume cleanly."
+        case .honestBytes, .crashes:
+            nil
+        }
+    }
+
     enum CodingKeys: String, CodingKey {
         case name, family
         case serveTier = "serve_tier"

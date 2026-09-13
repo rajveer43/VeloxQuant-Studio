@@ -151,6 +151,40 @@ struct QuantizationMethodDecodingTests {
         #expect(transfer.family == .unknown)
     }
 
+    /// Issue #1: `serve_tier_label` collapses `honest_bytes`, `accounting_only`,
+    /// and `not_trimmable` into the same "available" string, so a method like
+    /// `a2ats` (accounting-only) looked identical in the picker to a fully
+    /// honest one. `serveTierCaption` surfaces the distinction the label hides.
+    @Test func serveTierCaptionDistinguishesNonHonestTiers() throws {
+        func method(serveTier: String) throws -> QuantizationMethod {
+            let json = """
+            {
+              "name": "a2ats",
+              "family": "hybrid",
+              "serve_tier": "\(serveTier)",
+              "serve_tier_label": "available",
+              "is_servable": true,
+              "blurb": "A2ATS-adapted: rotary-aware vector quantization with distance gating.",
+              "config_fields": [],
+              "field_schema": [],
+              "coverage": "keys_and_values",
+              "coverage_label": "full estimate",
+              "paper_deviation": null,
+              "is_adapted": true,
+              "unsupported_reason": null,
+              "docs_url": null
+            }
+            """
+            let data = try #require(json.data(using: .utf8))
+            return try JSONDecoder().decode(QuantizationMethod.self, from: data)
+        }
+
+        #expect(try method(serveTier: "accounting_only").serveTierCaption != nil)
+        #expect(try method(serveTier: "not_trimmable").serveTierCaption != nil)
+        #expect(try method(serveTier: "honest_bytes").serveTierCaption == nil)
+        #expect(try method(serveTier: "crashes").serveTierCaption == nil)
+    }
+
     @Test func decodesServeReadyHandshake() throws {
         let json = """
         {
