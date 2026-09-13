@@ -219,6 +219,40 @@ struct QuantizationMethodDecodingTests {
         #expect(amc.serveTier == .notTrimmable)
     }
 
+    /// Issue #4: `anchorkv` (family `hybrid`) decodes to the exact same
+    /// `not_trimmable` shape as `amc` (family `eviction`, issue #3) — same
+    /// `unsupported_reason` template straight from `registry.py`'s
+    /// `_run_probe`. Confirms the fix generalizes across families rather
+    /// than happening to work for one method name.
+    @Test func hybridFamilyMethodCanAlsoBeNotTrimmableAndServable() throws {
+        let json = """
+        {
+          "name": "anchorkv",
+          "family": "hybrid",
+          "serve_tier": "not_trimmable",
+          "serve_tier_label": "available (no prompt-cache trimming)",
+          "is_servable": true,
+          "blurb": "AnchorKV-adapted: anchor-residual compression, no eviction.",
+          "config_fields": ["bit_width_inlier", "seed"],
+          "field_schema": [],
+          "coverage": "none",
+          "coverage_label": "no estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": "serves correctly, but reports is_trimmable() == False, so mlx_lm.server cannot trim its prompt cache — trim() would roll back offset bookkeeping without reverting internal eviction state. Expected for eviction/compression caches (#152).",
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let anchorkv = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(anchorkv.family == .hybrid)
+        #expect(anchorkv.isServable)
+        #expect(anchorkv.unsupportedReason != nil)
+        #expect(anchorkv.serveTier == .notTrimmable)
+        #expect(anchorkv.serveTierCaption != nil)
+    }
+
     @Test func decodesServeReadyHandshake() throws {
         let json = """
         {
