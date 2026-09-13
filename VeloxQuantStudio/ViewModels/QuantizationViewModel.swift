@@ -77,6 +77,24 @@ final class QuantizationViewModel {
         selectedModel != nil && selectedMethod?.isServable == true && activeJob == nil
     }
 
+    /// Warns when the current parameter overrides would reproduce a known
+    /// degenerate configuration, so a user typing free-text values doesn't
+    /// silently recreate a bug already fixed at the default. `adakv` needs
+    /// `lo_bit < target_avg_bits < hi_bit` — at or outside that range every
+    /// head gets the same bit-width regardless of importance (the exact
+    /// defect VeloxQuant-MLX #31 fixed by moving the default off the
+    /// boundary). Python only logs this as a runtime warning; nothing
+    /// surfaces it in the app before Start is pressed.
+    var parameterWarning: String? {
+        guard let selectedMethod, selectedMethod.name == "adakv" else { return nil }
+        guard let target = Double(parameterOverrides["adakv_target_avg_bits"] ?? ""),
+              let lo = Double(parameterOverrides["adakv_lo_bit"] ?? ""),
+              let hi = Double(parameterOverrides["adakv_hi_bit"] ?? "")
+        else { return nil }
+        guard lo < hi, !(lo < target && target < hi) else { return nil }
+        return "adakv_target_avg_bits (\(parameterOverrides["adakv_target_avg_bits"] ?? "")) must be strictly between adakv_lo_bit and adakv_hi_bit, or every head gets the same bit-width regardless of importance — no per-head adaptation."
+    }
+
     init(
         quantizationService: QuantizationServiceProtocol,
         modelService: ModelServiceProtocol,

@@ -301,6 +301,11 @@ struct QuantizationWorkspaceView: View {
                         }
                     }
                 }
+                if let warning = viewModel.parameterWarning {
+                    Text(warning)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             }
         }
     }
