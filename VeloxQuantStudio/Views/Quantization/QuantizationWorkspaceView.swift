@@ -243,6 +243,11 @@ struct QuantizationWorkspaceView: View {
                     .font(.caption)
                     .foregroundStyle(.red)
             }
+            if let caption = method.serveTierCaption {
+                Text(caption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             if let deviation = method.paperDeviation {
                 Text(deviation)
                     .font(.caption)
