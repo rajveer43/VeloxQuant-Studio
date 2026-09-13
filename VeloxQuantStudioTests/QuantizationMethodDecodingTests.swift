@@ -94,6 +94,56 @@ struct QuantizationMethodDecodingTests {
         #expect(method.docsURL == URL(string: "https://veloxquant-mlx.netlify.app/docs/algorithms/kivi"))
     }
 
+    /// Issue #9 (`gear`): captured live from `veloxquant methods --json` after
+    /// fixing VeloxQuant-MLX #355, which found that `config_fields` fell back
+    /// to `bit_width_inlier`/`seed` only for any method missing from the
+    /// Python registry's curated list — silently hiding every method-specific
+    /// knob from this exact `field_schema`, which `parameterEditor` renders
+    /// inputs from. `gear` has 6 real fields, including a `bool`
+    /// (`gear_quantize_values`) and an optional field with a `null` default
+    /// (`gear_rank`) — types no previously-curated method's schema exercised
+    /// in this app's tests.
+    @Test func decodesGearFieldSchemaWithBoolAndNullDefault() throws {
+        let json = """
+        {
+          "name": "gear",
+          "family": "quantization",
+          "serve_tier": "accounting_only",
+          "serve_tier_label": "available",
+          "is_servable": true,
+          "blurb": "GEAR: quantization plus a low-rank error-correction term.",
+          "config_fields": ["bit_width_inlier", "seed", "gear_bits", "gear_energy_threshold", "gear_group_size", "gear_quantize_values", "gear_rank", "gear_sparse_fraction"],
+          "field_schema": [
+            {"name": "bit_width_inlier", "type": "int", "default": 2, "optional": false, "help": "Bits per element for the main quantizer."},
+            {"name": "seed", "type": "int", "default": 42, "optional": false, "help": "Random seed for rotations / sketches."},
+            {"name": "gear_bits", "type": "int", "default": 2, "optional": false, "help": null},
+            {"name": "gear_energy_threshold", "type": "float", "default": 0.9, "optional": false, "help": null},
+            {"name": "gear_group_size", "type": "int", "default": 32, "optional": false, "help": null},
+            {"name": "gear_quantize_values", "type": "bool", "default": true, "optional": false, "help": null},
+            {"name": "gear_rank", "type": "int", "default": null, "optional": true, "help": null},
+            {"name": "gear_sparse_fraction", "type": "float", "default": 0.01, "optional": false, "help": null}
+          ],
+          "coverage": "keys_and_values",
+          "coverage_label": "full estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": null,
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let gear = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(gear.fieldSchema.count == 8)
+
+        let quantizeValues = try #require(gear.fieldSchema.first { $0.name == "gear_quantize_values" })
+        #expect(quantizeValues.defaultValue == .bool(true))
+
+        let rank = try #require(gear.fieldSchema.first { $0.name == "gear_rank" })
+        #expect(rank.optional)
+        #expect(rank.defaultValue == nil)
+    }
+
     /// Guards against the failure mode fixed for issue #42: a method whose
     /// `family` the app doesn't recognize yet (e.g. a future cross-model
     /// `transfer` entry) must decode as `.unknown` rather than throwing and
