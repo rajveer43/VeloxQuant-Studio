@@ -144,6 +144,47 @@ struct QuantizationMethodDecodingTests {
         #expect(rank.defaultValue == nil)
     }
 
+    /// Issue #10 (`h2o`): also missing from `_CONFIG_FIELDS` before #355 —
+    /// same bug as `gear` (#9), different method. Captured live from
+    /// `veloxquant methods --json` with the fix applied. `h2o` is
+    /// `not_trimmable` (eviction) *and* had its 5 real budget/decay fields
+    /// hidden, so this method exercises both bugs found across #9 and #3.
+    @Test func decodesH2OFieldSchemaAndNotTrimmableTier() throws {
+        let json = """
+        {
+          "name": "h2o",
+          "family": "eviction",
+          "serve_tier": "not_trimmable",
+          "serve_tier_label": "available (no prompt-cache trimming)",
+          "is_servable": true,
+          "blurb": "H2O: keeps 'heavy hitter' tokens by accumulated attention.",
+          "config_fields": ["bit_width_inlier", "seed", "h2o_budget", "h2o_decay", "h2o_grace", "h2o_n_sink", "h2o_rope_base"],
+          "field_schema": [
+            {"name": "bit_width_inlier", "type": "int", "default": 2, "optional": false, "help": "Bits per element for the main quantizer."},
+            {"name": "seed", "type": "int", "default": 42, "optional": false, "help": "Random seed for rotations / sketches."},
+            {"name": "h2o_budget", "type": "int", "default": 512, "optional": false, "help": null},
+            {"name": "h2o_decay", "type": "float", "default": 0.98, "optional": false, "help": null},
+            {"name": "h2o_grace", "type": "int", "default": 16, "optional": false, "help": null},
+            {"name": "h2o_n_sink", "type": "int", "default": 4, "optional": false, "help": null},
+            {"name": "h2o_rope_base", "type": "float", "default": 10000.0, "optional": false, "help": null}
+          ],
+          "coverage": "none",
+          "coverage_label": "no estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": "serves correctly, but reports is_trimmable() == False, so mlx_lm.server cannot trim its prompt cache — trim() would roll back offset bookkeeping without reverting internal eviction state. Expected for eviction/compression caches (#152).",
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let h2o = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(h2o.fieldSchema.count == 7)
+        #expect(h2o.fieldSchema.map(\.name).contains("h2o_budget"))
+        #expect(h2o.serveTier == .notTrimmable)
+        #expect(h2o.isServable)
+    }
+
     /// Guards against the failure mode fixed for issue #42: a method whose
     /// `family` the app doesn't recognize yet (e.g. a future cross-model
     /// `transfer` entry) must decode as `.unknown` rather than throwing and
