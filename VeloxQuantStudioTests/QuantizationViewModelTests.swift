@@ -164,6 +164,36 @@ struct QuantizationViewModelTests {
         #expect(viewModel.parameterOverrides["budget"] == "64")
     }
 
+    /// Issue #9 (`gear`): before VeloxQuant-MLX #355, `gear`'s field_schema
+    /// only ever contained `bit_width_inlier`/`seed` (both network-owned, so
+    /// the parameter editor showed nothing) even though the method has 6 real
+    /// knobs. Confirms that once the real fields decode, they all survive
+    /// `selectMethod`'s prefill: defaulted fields get their default as a
+    /// string, and the one optional field with a `null` default
+    /// (`gear_rank`) is correctly left unset rather than prefilled "null".
+    @Test func selectingGearPrefillsAllSixRealFieldsExceptNullDefault() async {
+        let gear = makeMethod(name: "gear", fieldSchema: [
+            ConfigField(name: "bit_width_inlier", type: "int", optional: false, defaultValue: .int(2), help: nil),
+            ConfigField(name: "seed", type: "int", optional: false, defaultValue: .int(42), help: nil),
+            ConfigField(name: "gear_bits", type: "int", optional: false, defaultValue: .int(2), help: nil),
+            ConfigField(name: "gear_energy_threshold", type: "float", optional: false, defaultValue: .double(0.9), help: nil),
+            ConfigField(name: "gear_group_size", type: "int", optional: false, defaultValue: .int(32), help: nil),
+            ConfigField(name: "gear_quantize_values", type: "bool", optional: false, defaultValue: .bool(true), help: nil),
+            ConfigField(name: "gear_rank", type: "int", optional: true, defaultValue: nil, help: nil),
+            ConfigField(name: "gear_sparse_fraction", type: "float", optional: false, defaultValue: .double(0.01), help: nil),
+        ])
+        let viewModel = await makeViewModel(methods: [gear])
+
+        viewModel.selectMethod(gear)
+
+        #expect(viewModel.parameterOverrides["gear_bits"] == "2")
+        #expect(viewModel.parameterOverrides["gear_energy_threshold"] == "0.9")
+        #expect(viewModel.parameterOverrides["gear_group_size"] == "32")
+        #expect(viewModel.parameterOverrides["gear_quantize_values"] == "true")
+        #expect(viewModel.parameterOverrides["gear_sparse_fraction"] == "0.01")
+        #expect(viewModel.parameterOverrides["gear_rank"] == nil)
+    }
+
     /// Issue #44: recommendConfig() populates recommendedConfig on success,
     /// and applyRecommendedConfig() then applies method/bits/knobs atomically
     /// to the manual form, mirroring applyPreset's atomic-apply guarantee.
