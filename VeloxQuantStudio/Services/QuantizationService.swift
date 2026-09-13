@@ -31,10 +31,20 @@ final class QuantizationJobHandle: Identifiable {
     let processController: StreamingProcessController
     private(set) var record: QuantizationJob?
     private(set) var readyPayload: ServeReadyPayload?
+    private(set) var kvStats: KVStats?
+    private(set) var kvStatsError: String?
 
-    init(request: QuantizationRequest, processController: StreamingProcessController) {
+    private let kvStatsService: KVStatsServiceProtocol
+    private var kvStatsPollTask: Task<Void, Never>?
+
+    init(
+        request: QuantizationRequest,
+        processController: StreamingProcessController,
+        kvStatsService: KVStatsServiceProtocol = KVStatsService()
+    ) {
         self.request = request
         self.processController = processController
+        self.kvStatsService = kvStatsService
     }
 
     fileprivate func attach(record: QuantizationJob) {
@@ -43,6 +53,55 @@ final class QuantizationJobHandle: Identifiable {
 
     fileprivate func markReady(_ payload: ServeReadyPayload) {
         self.readyPayload = payload
+        startPollingKVStats(payload)
+    }
+
+    #if DEBUG
+    /// Test-only seam onto `markReady`, which is otherwise `fileprivate` to
+    /// this file (only `QuantizationService.startJob()`'s stdout handler
+    /// should simulate a real ready handshake). `@testable import` does not
+    /// bypass `fileprivate`, so this exists purely for
+    /// `QuantizationJobHandleKVStatsTests` to exercise the poll-start path.
+    func markReadyForTesting(_ payload: ServeReadyPayload) {
+        markReady(payload)
+    }
+    #endif
+
+    /// Polls `GET {kv_stats}` every few seconds while the job is running, so
+    /// the compressed-vs-fp16 byte counters in `JobProgressView` reflect
+    /// live traffic rather than only the one-shot ready handshake. Stops
+    /// itself once the handle is deallocated (job stopped or replaced) —
+    /// there is no explicit `stopPolling()` call site to forget.
+    private func startPollingKVStats(_ payload: ServeReadyPayload) {
+        guard let kvStatsURLString = payload.endpoints.kvStats,
+              let kvStatsURL = URL(string: kvStatsURLString)
+        else { return }
+
+        kvStatsPollTask?.cancel()
+        kvStatsPollTask = Task { [weak self, kvStatsService] in
+            while !Task.isCancelled {
+                do {
+                    let stats = try await kvStatsService.fetchStats(from: kvStatsURL)
+                    guard let self, !Task.isCancelled else { return }
+                    self.kvStats = stats
+                    self.kvStatsError = nil
+                } catch {
+                    guard let self, !Task.isCancelled else { return }
+                    self.kvStatsError = error.localizedDescription
+                }
+                try? await Task.sleep(for: .seconds(3))
+            }
+        }
+    }
+
+    /// Stops the poll loop explicitly — called from `stopJob()` so a stopped
+    /// job doesn't keep hitting a server process that's shutting down. Swift
+    /// 6 strict concurrency forbids touching this `@MainActor` type's state
+    /// from `deinit` (which runs nonisolated), so there is no implicit
+    /// cleanup path — every caller that stops a job must call this.
+    func stopPollingKVStats() {
+        kvStatsPollTask?.cancel()
+        kvStatsPollTask = nil
     }
 }
 
@@ -65,12 +124,17 @@ struct ServeReadyPayload: Codable {
         let chatCompletions: String
         let completions: String
         let models: String
+        /// Introduced alongside `schema_version: 2` (`emit_ready()`); absent
+        /// from older interpreters' handshakes, so a build-result method
+        /// display isn't gated on it decoding.
+        let kvStats: String?
 
         enum CodingKeys: String, CodingKey {
             case openaiBaseURL = "openai_base_url"
             case chatCompletions = "chat_completions"
             case completions
             case models
+            case kvStats = "kv_stats"
         }
     }
 
