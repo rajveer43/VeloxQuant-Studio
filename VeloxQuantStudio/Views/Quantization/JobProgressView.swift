@@ -11,6 +11,10 @@ struct JobProgressView: View {
                 readyDetail(payload)
                 Divider()
             }
+            if handle.readyPayload != nil {
+                kvStatsSection
+                Divider()
+            }
             logPane
         }
     }
@@ -69,6 +73,76 @@ struct JobProgressView: View {
         }
         .padding(.horizontal, Metrics.pagePadding)
         .padding(.bottom, 16)
+    }
+
+    /// Polls `GET /v1/kv/stats` on the running job (see
+    /// `QuantizationJobHandle.startPollingKVStats`) — this is the "benchmark
+    /// result" issue #5 and friends ask to confirm renders, which had no UI
+    /// at all before this. Distinguishes "not reported yet" from a real
+    /// zero, mirroring `build_stats_payload()`'s own honesty contract.
+    @ViewBuilder
+    private var kvStatsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Cache Stats").font(.subheadline.weight(.semibold))
+
+            if let error = handle.kvStatsError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if let stats = handle.kvStats {
+                if let reason = stats.notReportedReason {
+                    Text(reason.prefix(1).uppercased() + reason.dropFirst())
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if let keys = stats.keys {
+                            byteCountsRow(label: "Keys", counts: keys)
+                        }
+                        if let values = stats.values {
+                            byteCountsRow(label: "Values", counts: values)
+                        }
+                        if let tokens = stats.tokens {
+                            HStack {
+                                Text("Tokens")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 130, alignment: .leading)
+                                Text("\(tokens.retained) retained / \(tokens.seen) seen")
+                                    .font(.caption.monospaced())
+                                Spacer()
+                            }
+                        }
+                    }
+                }
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .padding(.horizontal, Metrics.pagePadding)
+        .padding(.bottom, 16)
+    }
+
+    private func byteCountsRow(label: String, counts: KVStats.ByteCounts) -> some View {
+        HStack {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 130, alignment: .leading)
+            if let ratio = counts.ratio {
+                Text(String(format: "%.2fx smaller (%@ vs %@)", ratio, byteCountString(counts.compressedBytes), byteCountString(counts.fp16Bytes)))
+                    .font(.caption.monospaced())
+            } else {
+                Text("not reported")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+    }
+
+    private func byteCountString(_ bytes: Int) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .memory)
     }
 
     private func endpointRow(label: String, value: String) -> some View {

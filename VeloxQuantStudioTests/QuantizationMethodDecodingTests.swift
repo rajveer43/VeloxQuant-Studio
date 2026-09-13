@@ -280,5 +280,37 @@ struct QuantizationMethodDecodingTests {
         #expect(payload.model == "mlx-community/Llama-3.2-1B-Instruct-4bit")
         #expect(payload.layerCaches == 16)
         #expect(payload.endpoints.openaiBaseURL == "http://127.0.0.1:8000/v1")
+        #expect(payload.endpoints.kvStats == nil)
+    }
+
+    /// Issue #5: confirmed against a real `veloxquant serve --method cachegen`
+    /// run — `schema_version: 2` adds `kv_stats` to the handshake's
+    /// `endpoints`, which decoding must pick up so `JobProgressView` can
+    /// start polling it.
+    @Test func decodesServeReadyHandshakeWithKVStatsEndpoint() throws {
+        let json = """
+        {
+          "schema_version": 2,
+          "model": "mlx-community/Llama-3.2-1B-Instruct-4bit",
+          "method": "cachegen",
+          "bits": 2,
+          "host": "127.0.0.1",
+          "port": 8971,
+          "layer_caches": 16,
+          "endpoints": {
+            "openai_base_url": "http://127.0.0.1:8971/v1",
+            "chat_completions": "http://127.0.0.1:8971/v1/chat/completions",
+            "completions": "http://127.0.0.1:8971/v1/completions",
+            "models": "http://127.0.0.1:8971/v1/models",
+            "kv_stats": "http://127.0.0.1:8971/v1/kv/stats"
+          },
+          "accounting_only": true,
+          "accounting_note": "compression is accounting-only."
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let payload = try JSONDecoder().decode(ServeReadyPayload.self, from: data)
+
+        #expect(payload.endpoints.kvStats == "http://127.0.0.1:8971/v1/kv/stats")
     }
 }

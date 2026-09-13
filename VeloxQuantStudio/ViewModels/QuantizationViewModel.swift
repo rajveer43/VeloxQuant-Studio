@@ -220,6 +220,7 @@ final class QuantizationViewModel {
 
     func stopJob() {
         guard let activeJob else { return }
+        activeJob.stopPollingKVStats()
         quantizationService.stopJob(activeJob)
         self.activeJob = nil
     }
