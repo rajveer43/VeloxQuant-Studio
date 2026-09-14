@@ -190,12 +190,13 @@ struct ConfigField: Identifiable, Codable, Hashable {
 }
 
 /// A minimal JSON value box for heterogeneous `default` fields coming back
-/// from Python (int, float, bool, string, or null).
+/// from Python (int, float, bool, string, array, or null).
 enum JSONValue: Codable, Hashable {
     case string(String)
     case int(Int)
     case double(Double)
     case bool(Bool)
+    case array([JSONValue])
     case null
 
     init(from decoder: Decoder) throws {
@@ -210,6 +211,13 @@ enum JSONValue: Codable, Hashable {
             self = .double(double)
         } else if let string = try? container.decode(String.self) {
             self = .string(string)
+        } else if let array = try? container.decode([JSONValue].self) {
+            // Fields like kvtc_bit_choices / svdq_bit_schedule are Python
+            // tuples, which json.dumps serializes as plain JSON arrays —
+            // without this case the decoder fell through to .null, silently
+            // discarding a real default (e.g. [0, 1, 2, 3, 4, 6, 8]) rather
+            // than losing the whole method's decode (see #17).
+            self = .array(array)
         } else {
             self = .null
         }
@@ -222,6 +230,7 @@ enum JSONValue: Codable, Hashable {
         case .int(let value): try container.encode(value)
         case .double(let value): try container.encode(value)
         case .bool(let value): try container.encode(value)
+        case .array(let value): try container.encode(value)
         case .null: try container.encodeNil()
         }
     }
@@ -232,6 +241,7 @@ enum JSONValue: Codable, Hashable {
         case .int(let value): String(value)
         case .double(let value): String(value)
         case .bool(let value): value ? "true" : "false"
+        case .array(let value): "[" + value.map(\.displayString).joined(separator: ", ") + "]"
         case .null: ""
         }
     }
