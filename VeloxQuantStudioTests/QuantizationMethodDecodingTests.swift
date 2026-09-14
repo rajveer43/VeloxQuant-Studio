@@ -295,6 +295,45 @@ struct QuantizationMethodDecodingTests {
         #expect(rvq.usesNetworkBitWidth)
     }
 
+    /// Issue #14 (`kivi_sink`): a curated method's `_CONFIG_FIELDS` entry can
+    /// itself be incomplete, a different failure mode from #9's uncurated-
+    /// method bug. Before VeloxQuant-MLX #356, `kivi_sink`'s only visible
+    /// fields (`bit_width_inlier`, `kivi_group_size`) were identical to
+    /// plain `kivi` — its own sink-count knob (`n_sink_tokens`, the thing
+    /// the blurb is actually about) was completely hidden. Captured live
+    /// with #356's fix applied.
+    @Test func decodesKiviSinkFieldSchemaIncludingNSinkTokens() throws {
+        let json = """
+        {
+          "name": "kivi_sink",
+          "family": "hybrid",
+          "serve_tier": "accounting_only",
+          "serve_tier_label": "available",
+          "is_servable": true,
+          "blurb": "KIVI with attention-sink protection for the first tokens.",
+          "config_fields": ["bit_width_inlier", "kivi_group_size", "n_sink_tokens"],
+          "field_schema": [
+            {"name": "bit_width_inlier", "type": "int", "default": 2, "optional": false, "help": "Bits per element for the main quantizer."},
+            {"name": "kivi_group_size", "type": "int", "default": 32, "optional": false, "help": "Tokens per min/max quantization group."},
+            {"name": "n_sink_tokens", "type": "int", "default": 5, "optional": false, "help": "Number of early attention-sink tokens kept in fp16, never quantized."}
+          ],
+          "coverage": "keys_and_values",
+          "coverage_label": "full estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": null,
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let kiviSink = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(kiviSink.fieldSchema.count == 3)
+        let sinkField = try #require(kiviSink.fieldSchema.first { $0.name == "n_sink_tokens" })
+        #expect(sinkField.defaultValue == .int(5))
+        #expect(sinkField.help != nil)
+    }
+
     /// Guards against the failure mode fixed for issue #42: a method whose
     /// `family` the app doesn't recognize yet (e.g. a future cross-model
     /// `transfer` entry) must decode as `.unknown` rather than throwing and
