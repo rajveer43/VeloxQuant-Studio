@@ -57,15 +57,33 @@ struct QuantizationMethod: Identifiable, Codable, Hashable {
     /// Whether this method's cache class actually reads `bit_width_inlier`
     /// (`serve.py`'s `build_config()` always sets it from the Network
     /// section's "Bit width" stepper via `--bits`, regardless of method).
-    /// Ten methods — `kitty` (issue #12), `adakv`, `vecinfer`, `svdq`,
-    /// `xquant`, `kvquant`, `palu`, `qjl`, `rocketkv`, `age_tiered` — never
-    /// reference it at all, so moving that stepper is a silent no-op for
-    /// them; their real precision knobs (e.g. `kitty_hi_bit`/`kitty_lo_bit`)
-    /// live in `fieldSchema` instead. `configFields` is the source of truth
-    /// here (mirrors `_CONFIG_FIELDS` server-side), not a hardcoded name
-    /// list, so a newly curated method is covered automatically.
+    ///
+    /// For a *curated* method (one with its own `_CONFIG_FIELDS` entry —
+    /// e.g. `kitty`, issue #12) `configFields` alone is the source of truth:
+    /// its explicit list simply omits `bit_width_inlier` when unused.
+    ///
+    /// That stops being true for an *uncurated* method: registry.py's
+    /// `_default_config_fields()` (issue #9) unconditionally prepends
+    /// `_GENERIC_FIELDS` (`bit_width_inlier`, `seed`) as a CLI-override
+    /// baseline before appending the method's real prefix-matched fields —
+    /// a deliberate choice so `--set bit_width_inlier=...` still validates
+    /// for any method, curated or not. That baseline means every uncurated
+    /// method's `configFields` contains `bit_width_inlier` whether or not
+    /// its cache class reads it. Verified against every uncurated cache
+    /// class's `__init__` (issue #15, `knorm`'s fp16-only cache being the
+    /// trigger): none of them reference `bit_width_inlier` at all, so this
+    /// exclusion list is a hand-verified snapshot, not a guess — re-check it
+    /// when a listed method gets curated or a new uncurated one ships.
+    private static let methodsIgnoringNetworkBitWidth: Set<String> = [
+        "cachegen", "minicache", "gear", "zipcache", "snapkv", "streaming_llm",
+        "h2o", "tova", "pyramidkv", "squeeze", "chunkkv", "cam", "xkv",
+        "nsnquant", "knorm", "skvq", "qfilters", "keyformer", "morphkv",
+        "kvzip", "kvtc", "curdkv", "nestedkv", "amc", "a2ats", "anchorkv",
+    ]
+
     var usesNetworkBitWidth: Bool {
         configFields.contains("bit_width_inlier")
+            && !Self.methodsIgnoringNetworkBitWidth.contains(name)
     }
 
     enum CodingKeys: String, CodingKey {
