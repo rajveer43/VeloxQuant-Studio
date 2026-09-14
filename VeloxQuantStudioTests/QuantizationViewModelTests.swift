@@ -288,15 +288,16 @@ struct QuantizationViewModelTests {
     }
 
     /// Issue #3 (`amc`, eviction), #4 (`anchorkv`, hybrid), #6 (`cam`,
-    /// eviction), #7 (`chunkkv`, eviction), #8 (`curdkv`, eviction), and #10
-    /// (`h2o`, eviction): all decode to `not_trimmable` with the exact same
-    /// generic `unsupported_reason` template from `registry.py`, so the fix
-    /// must be generic across families and methods, not keyed to one name.
-    /// `not_trimmable` is still `is_servable == true` — the method belongs
-    /// in the "Servable" section of the picker, and Start must stay
-    /// enabled, even though it carries a non-nil `unsupportedReason`
-    /// (Python reuses that field for the tier's explanatory text, not only
-    /// for why a `crashes`-tier method is blocked).
+    /// eviction), #7 (`chunkkv`, eviction), #8 (`curdkv`, eviction), #10
+    /// (`h2o`, eviction), and #11 (`keyformer`, eviction): all decode to
+    /// `not_trimmable` with the exact same generic `unsupported_reason`
+    /// template from `registry.py`, so the fix must be generic across
+    /// families and methods, not keyed to one name. `not_trimmable` is
+    /// still `is_servable == true` — the method belongs in the "Servable"
+    /// section of the picker, and Start must stay enabled, even though it
+    /// carries a non-nil `unsupportedReason` (Python reuses that field for
+    /// the tier's explanatory text, not only for why a `crashes`-tier
+    /// method is blocked).
     @Test(arguments: [
         ("amc", MethodFamily.eviction),
         ("anchorkv", MethodFamily.hybrid),
@@ -304,6 +305,7 @@ struct QuantizationViewModelTests {
         ("chunkkv", MethodFamily.eviction),
         ("curdkv", MethodFamily.eviction),
         ("h2o", MethodFamily.eviction),
+        ("keyformer", MethodFamily.eviction),
     ])
     func notTrimmableMethodIsServableAndDoesNotBlockStart(name: String, family: MethodFamily) async {
         let method = makeMethod(name: name, family: family, serveTier: .notTrimmable)

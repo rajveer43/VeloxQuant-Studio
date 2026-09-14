@@ -185,6 +185,56 @@ struct QuantizationMethodDecodingTests {
         #expect(h2o.isServable)
     }
 
+    /// Issue #11 (`keyformer`): also missing from `_CONFIG_FIELDS` before
+    /// #355. Notable because it has *both* the generic `seed` field
+    /// (network-owned, filtered from the parameter editor) *and* its own
+    /// distinct `keyformer_seed` field — `networkOwnedFields` is an exact-
+    /// match `Set<String>`, so `keyformer_seed` must survive filtering
+    /// rather than being caught by a prefix/substring check against `seed`.
+    /// Also exercises `keyformer_tau`: optional with a `null` default, same
+    /// shape as `gear_rank` (#9).
+    @Test func decodesKeyformerFieldSchemaWithDistinctSeedField() throws {
+        let json = """
+        {
+          "name": "keyformer",
+          "family": "eviction",
+          "serve_tier": "not_trimmable",
+          "serve_tier_label": "available (no prompt-cache trimming)",
+          "is_servable": true,
+          "blurb": "Keyformer: Gumbel-softmax scoring for key-token selection.",
+          "config_fields": ["bit_width_inlier", "seed", "keyformer_anneal_steps", "keyformer_budget", "keyformer_n_sink", "keyformer_recent", "keyformer_rope_base", "keyformer_seed", "keyformer_tau", "keyformer_tau_end", "keyformer_tau_init"],
+          "field_schema": [
+            {"name": "bit_width_inlier", "type": "int", "default": 2, "optional": false, "help": "Bits per element for the main quantizer."},
+            {"name": "seed", "type": "int", "default": 42, "optional": false, "help": "Random seed for rotations / sketches."},
+            {"name": "keyformer_anneal_steps", "type": "int", "default": 0, "optional": false, "help": null},
+            {"name": "keyformer_budget", "type": "int", "default": 512, "optional": false, "help": null},
+            {"name": "keyformer_n_sink", "type": "int", "default": 4, "optional": false, "help": null},
+            {"name": "keyformer_recent", "type": "int", "default": 0, "optional": false, "help": null},
+            {"name": "keyformer_rope_base", "type": "float", "default": 10000.0, "optional": false, "help": null},
+            {"name": "keyformer_seed", "type": "int", "default": 0, "optional": false, "help": null},
+            {"name": "keyformer_tau", "type": "float", "default": null, "optional": true, "help": null},
+            {"name": "keyformer_tau_end", "type": "float", "default": 1.0, "optional": false, "help": null},
+            {"name": "keyformer_tau_init", "type": "float", "default": 1.0, "optional": false, "help": null}
+          ],
+          "coverage": "none",
+          "coverage_label": "no estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": "serves correctly, but reports is_trimmable() == False, so mlx_lm.server cannot trim its prompt cache — trim() would roll back offset bookkeeping without reverting internal eviction state. Expected for eviction/compression caches (#152).",
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let keyformer = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(keyformer.fieldSchema.count == 11)
+        #expect(keyformer.fieldSchema.map(\.name).contains("keyformer_seed"))
+
+        let tau = try #require(keyformer.fieldSchema.first { $0.name == "keyformer_tau" })
+        #expect(tau.optional)
+        #expect(tau.defaultValue == nil)
+    }
+
     /// Guards against the failure mode fixed for issue #42: a method whose
     /// `family` the app doesn't recognize yet (e.g. a future cross-model
     /// `transfer` entry) must decode as `.unknown` rather than throwing and
