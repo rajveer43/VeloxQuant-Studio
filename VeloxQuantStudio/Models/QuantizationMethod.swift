@@ -54,6 +54,20 @@ struct QuantizationMethod: Identifiable, Codable, Hashable {
         }
     }
 
+    /// Whether this method's cache class actually reads `bit_width_inlier`
+    /// (`serve.py`'s `build_config()` always sets it from the Network
+    /// section's "Bit width" stepper via `--bits`, regardless of method).
+    /// Ten methods — `kitty` (issue #12), `adakv`, `vecinfer`, `svdq`,
+    /// `xquant`, `kvquant`, `palu`, `qjl`, `rocketkv`, `age_tiered` — never
+    /// reference it at all, so moving that stepper is a silent no-op for
+    /// them; their real precision knobs (e.g. `kitty_hi_bit`/`kitty_lo_bit`)
+    /// live in `fieldSchema` instead. `configFields` is the source of truth
+    /// here (mirrors `_CONFIG_FIELDS` server-side), not a hardcoded name
+    /// list, so a newly curated method is covered automatically.
+    var usesNetworkBitWidth: Bool {
+        configFields.contains("bit_width_inlier")
+    }
+
     enum CodingKeys: String, CodingKey {
         case name, family
         case serveTier = "serve_tier"
