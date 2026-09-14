@@ -369,6 +369,47 @@ struct QuantizationMethodDecodingTests {
         #expect(!knorm.usesNetworkBitWidth)
     }
 
+    /// Regression for issue #16: `kvquant` is *curated* in registry.py's
+    /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
+    /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its
+    /// `__init__`) until this fix — the parameter editor never rendered a
+    /// control for it. Captures the corrected payload so a future regression
+    /// (the field silently dropping out of `config_fields`/`field_schema`
+    /// again) fails this test rather than only being caught by the Python
+    /// registry test.
+    @Test func kvquantExposesNSinkField() throws {
+        let json = """
+        {
+          "name": "kvquant",
+          "family": "quantization",
+          "serve_tier": "accounting_only",
+          "serve_tier_label": "available",
+          "is_servable": true,
+          "blurb": "KVQuant-NUQ: non-uniform levels via Lloyd-Max with fp16 outliers.",
+          "config_fields": ["kvquant_bits", "kvquant_outlier_fraction", "kvquant_group_size", "kvquant_lloyd_iters", "kvquant_refit_interval", "kvquant_n_sink"],
+          "field_schema": [
+            {"name": "kvquant_bits", "type": "int", "default": 3, "optional": false, "help": null},
+            {"name": "kvquant_outlier_fraction", "type": "float", "default": 0.01, "optional": false, "help": "Top-magnitude fraction kept in fp16."},
+            {"name": "kvquant_group_size", "type": "int", "default": 32, "optional": false, "help": null},
+            {"name": "kvquant_lloyd_iters", "type": "int", "default": 8, "optional": false, "help": null},
+            {"name": "kvquant_refit_interval", "type": "int", "default": 0, "optional": false, "help": null},
+            {"name": "kvquant_n_sink", "type": "int", "default": 1, "optional": false, "help": null}
+          ],
+          "coverage": "keys_and_values",
+          "coverage_label": "full estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": null,
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let kvquant = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(kvquant.configFields.contains("kvquant_n_sink"))
+        #expect(kvquant.fieldSchema.contains { $0.name == "kvquant_n_sink" })
+    }
+
     /// Guards against the failure mode fixed for issue #42: a method whose
     /// `family` the app doesn't recognize yet (e.g. a future cross-model
     /// `transfer` entry) must decode as `.unknown` rather than throwing and
