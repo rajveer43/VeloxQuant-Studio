@@ -235,6 +235,66 @@ struct QuantizationMethodDecodingTests {
         #expect(tau.defaultValue == nil)
     }
 
+    /// Issue #12 (`kitty`): `kitty` is already curated in `_CONFIG_FIELDS`
+    /// (unaffected by #355/#9), but its `config_fields` never includes
+    /// `bit_width_inlier` — `KittyKVCache` only ever reads `kitty_hi_bit`/
+    /// `kitty_lo_bit`. `serve.py`'s `build_config()` sets `bit_width_inlier`
+    /// from `--bits` unconditionally regardless of method, so the Network
+    /// section's "Bit width" stepper is a silent no-op for `kitty` (and 9
+    /// other curated methods: `adakv`, `vecinfer`, `svdq`, `xquant`,
+    /// `kvquant`, `palu`, `qjl`, `rocketkv`, `age_tiered`).
+    /// `usesNetworkBitWidth` is what the Network section and job header key
+    /// off to warn the user / avoid showing a misleading "N-bit" label.
+    @Test func kittyDoesNotUseNetworkBitWidth() throws {
+        let json = """
+        {
+          "name": "kitty",
+          "family": "quantization",
+          "serve_tier": "accounting_only",
+          "serve_tier_label": "available",
+          "is_servable": true,
+          "blurb": "Kitty: dynamic channel-wise mixed precision by variance.",
+          "config_fields": ["kitty_hi_fraction", "kitty_hi_bit", "kitty_lo_bit", "kitty_group_size"],
+          "field_schema": [],
+          "coverage": "keys_only",
+          "coverage_label": "partial estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": null,
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let kitty = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(!kitty.usesNetworkBitWidth)
+    }
+
+    @Test func methodDeclaringBitWidthInlierUsesNetworkBitWidth() throws {
+        let json = """
+        {
+          "name": "turboquant_rvq",
+          "family": "quantization",
+          "serve_tier": "accounting_only",
+          "serve_tier_label": "available",
+          "is_servable": true,
+          "blurb": "Residual vector quantization.",
+          "config_fields": ["bit_width_inlier", "seed"],
+          "field_schema": [],
+          "coverage": "keys_only",
+          "coverage_label": "partial estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": null,
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let rvq = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(rvq.usesNetworkBitWidth)
+    }
+
     /// Guards against the failure mode fixed for issue #42: a method whose
     /// `family` the app doesn't recognize yet (e.g. a future cross-model
     /// `transfer` entry) must decode as `.unknown` rather than throwing and

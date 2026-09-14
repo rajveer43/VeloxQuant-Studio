@@ -328,6 +328,11 @@ struct QuantizationWorkspaceView: View {
                 }
                 .frame(width: 140)
             }
+            if let method = viewModel.selectedMethod, !method.usesNetworkBitWidth {
+                Text("\(method.name) doesn't use this control — its precision is set by the parameters below instead.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
             HStack {
                 Text("Port")
                 Spacer()

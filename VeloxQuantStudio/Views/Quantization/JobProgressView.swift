@@ -26,13 +26,26 @@ struct JobProgressView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(handle.request.model.repoID)
                     .font(.headline)
-                Text("\(handle.request.method.name) · \(handle.request.bitWidth)-bit · port \(handle.request.port)")
+                // Issue #12: the "N-bit" segment names --bits, which some
+                // methods (kitty, adakv, kvquant, ...) never read — showing
+                // it there would misrepresent a job whose real precision
+                // comes from that method's own parameters instead.
+                Text(subtitleText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
         }
         .padding(Metrics.pagePadding)
+    }
+
+    private var subtitleText: String {
+        let method = handle.request.method.name
+        let port = handle.request.port
+        guard handle.request.method.usesNetworkBitWidth else {
+            return "\(method) · port \(port)"
+        }
+        return "\(method) · \(handle.request.bitWidth)-bit · port \(port)"
     }
 
     private var statusPill: some View {
