@@ -334,6 +334,41 @@ struct QuantizationMethodDecodingTests {
         #expect(sinkField.help != nil)
     }
 
+    /// Issue #15 (`knorm`): a distinct failure mode from `kitty`'s. `kitty`
+    /// is *curated* and its `_CONFIG_FIELDS` list simply omits
+    /// `bit_width_inlier` — `configFields.contains` alone catches that.
+    /// `knorm` is *uncurated*: registry.py's `_default_config_fields()`
+    /// (issue #9) unconditionally prepends `_GENERIC_FIELDS` before the
+    /// method's real `knorm_*` fields, so `bit_width_inlier` IS present in
+    /// `config_fields` even though `L2NormKVCache` stores fp16 K/V directly
+    /// and never reads it — `configFields.contains` alone would wrongly
+    /// report `true` here. Captured against the real registry payload.
+    @Test func knormDoesNotUseNetworkBitWidth() throws {
+        let json = """
+        {
+          "name": "knorm",
+          "family": "eviction",
+          "serve_tier": "not_trimmable",
+          "serve_tier_label": "available",
+          "is_servable": true,
+          "blurb": "K-norm: evicts by key-norm as an attention proxy.",
+          "config_fields": ["bit_width_inlier", "seed", "knorm_budget", "knorm_keep", "knorm_n_sink", "knorm_recent"],
+          "field_schema": [],
+          "coverage": "keys_and_values",
+          "coverage_label": "full estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": null,
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let knorm = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(knorm.configFields.contains("bit_width_inlier"))
+        #expect(!knorm.usesNetworkBitWidth)
+    }
+
     /// Guards against the failure mode fixed for issue #42: a method whose
     /// `family` the app doesn't recognize yet (e.g. a future cross-model
     /// `transfer` entry) must decode as `.unknown` rather than throwing and
