@@ -410,6 +410,52 @@ struct QuantizationMethodDecodingTests {
         #expect(kvquant.fieldSchema.contains { $0.name == "kvquant_n_sink" })
     }
 
+    /// Regression for issue #17: `kvtc_bit_choices` is a Python `tuple`
+    /// (`(0, 1, 2, 3, 4, 6, 8)`), which `json.dumps` serializes as a plain
+    /// JSON array default. Before `JSONValue` gained an `.array` case, the
+    /// decoder only tried bool/int/double/string and silently fell back to
+    /// `.null` for anything else — losing the real default (it would render
+    /// as a blank default in the parameter editor) without failing the
+    /// decode. Captures the real `veloxquant methods --json` payload for
+    /// `kvtc` so a future regression is caught here, not just by the Python
+    /// registry test for `describe_field`.
+    @Test func kvtcBitChoicesDecodesArrayDefaultRatherThanNull() throws {
+        let json = """
+        {
+          "name": "kvtc",
+          "family": "quantization",
+          "serve_tier": "accounting_only",
+          "serve_tier_label": "available",
+          "is_servable": true,
+          "blurb": "KVTC: transform coding of the cache.",
+          "config_fields": ["bit_width_inlier", "seed", "kvtc_beta", "kvtc_bit_budget", "kvtc_bit_choices"],
+          "field_schema": [
+            {"name": "bit_width_inlier", "type": "int", "default": 2, "optional": false, "help": "Bits per element for the main quantizer."},
+            {"name": "seed", "type": "int", "default": 42, "optional": false, "help": "Random seed for rotations / sketches."},
+            {"name": "kvtc_beta", "type": "float", "default": 3.5, "optional": false, "help": null},
+            {"name": "kvtc_bit_budget", "type": "int", "default": 512, "optional": false, "help": null},
+            {"name": "kvtc_bit_choices", "type": "array", "default": [0, 1, 2, 3, 4, 6, 8], "optional": false, "help": null}
+          ],
+          "coverage": "keys_and_values",
+          "coverage_label": "full estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": null,
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let kvtc = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        let field = try #require(kvtc.fieldSchema.first { $0.name == "kvtc_bit_choices" })
+        guard case .array(let values) = field.defaultValue else {
+            Issue.record("expected .array default, got \(String(describing: field.defaultValue))")
+            return
+        }
+        #expect(values.map(\.displayString) == ["0", "1", "2", "3", "4", "6", "8"])
+        #expect(field.defaultValue?.displayString == "[0, 1, 2, 3, 4, 6, 8]")
+    }
+
     /// Guards against the failure mode fixed for issue #42: a method whose
     /// `family` the app doesn't recognize yet (e.g. a future cross-model
     /// `transfer` entry) must decode as `.unknown` rather than throwing and
