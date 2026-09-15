@@ -513,6 +513,39 @@ struct QuantizationViewModelTests {
         #expect(viewModel.activeJob == nil)
     }
 
+    /// Issue #41 (`turboquant_prod`, quantization): the last of the 5
+    /// methods in `STANDALONE_METHODS` (`veloxquant_mlx/cache/base.py`,
+    /// issue #27) to get its own issue-tagged coverage — `turboquant_prod`,
+    /// `turboquant_mse` (#40), `polar` (#37), `qjl` (#38), `spectral` (#39).
+    /// `TurboQuantKVCache` product-quantization is the library's default for
+    /// offline study, and was already used (by name) as the *generic*
+    /// crashes-tier fixture in `startBlockedReasonNamesTierForCrashingMethod`
+    /// above — but that test only pins `canStart`/`startBlockedReason`, not
+    /// the full `servableMethods`/`unsupportedMethods`/`startJob()` defense-
+    /// in-depth set the other four standalone methods each got. Verified
+    /// live via `veloxquant serve --method turboquant_prod`: refuses upfront
+    /// with this exact text, same as the other four. Note this is a distinct
+    /// method from the servable `turboquant_rvq` variant used elsewhere in
+    /// this file as the default-method fixture.
+    @Test func turboquantProdIsUnsupportedAndBlocksStartBeforeSubmission() async {
+        let turboquantProd = makeMethod(name: "turboquant_prod", family: .quantization, serveTier: .crashes)
+        let viewModel = await makeViewModel(methods: [turboquantProd], models: [
+            LocalModel(repoID: "mlx-community/Qwen2.5-0.5B-Instruct-4bit", sizeBytes: 0, sizeLabel: "0", isMLXCommunity: true),
+        ])
+        viewModel.selectMethod(turboquantProd)
+
+        #expect(viewModel.servableMethods.isEmpty)
+        #expect(viewModel.unsupportedMethods.map(\.name) == ["turboquant_prod"])
+        #expect(!viewModel.canStart)
+        #expect(viewModel.startBlockedReason == "turboquant_prod does not subclass mlx_lm KVCache")
+
+        // Defense in depth: even if a caller reaches startJob() directly
+        // (bypassing the disabled button), the method-level isServable guard
+        // inside startJob() itself must still refuse to launch a job.
+        viewModel.startJob()
+        #expect(viewModel.activeJob == nil)
+    }
+
     /// Issue #2: VeloxQuant-MLX #31 fixed `adakv`'s degenerate default
     /// (`target_avg_bits == lo_bit`, which flattens every head to the same
     /// bit-width) by moving the default off the boundary — but a user can
