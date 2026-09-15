@@ -632,6 +632,72 @@ struct QuantizationMethodDecodingTests {
         #expect(quantizeValues.defaultValue == .bool(true))
     }
 
+    /// Issue #24 (`pyramidkv`, eviction): `not_trimmable` shape, same
+    /// generic `unsupported_reason` template covered by the parameterized
+    /// ViewModel test — pinned here too for the decoding side.
+    ///
+    /// A real backend bug was found and fixed while verifying this issue
+    /// (upstream VeloxQuant-MLX#367): `pyramidkv` was previously
+    /// *uncurated*, so `field_is_relevant`'s `"pyramid_"` name-prefix
+    /// fallback exposed `pyramid_resolved_budget` alongside the three real
+    /// user-facing knobs (plus `pyramid_budget`) — an internal, per-layer
+    /// field written only by `KVCacheBuilder._build_pyramidkv` (via
+    /// `dataclasses.replace`) to hand each layer its own slice of the
+    /// pyramid schedule, never meant to be user-settable. Left exposed,
+    /// `--set pyramid_resolved_budget=N` or this app's parameter editor
+    /// could have silently pinned every layer to one fixed budget,
+    /// bypassing the pyramid schedule with no visible indication. The fix
+    /// added a curated `_CONFIG_FIELDS["pyramidkv"]` entry listing only the
+    /// four real fields (`pyramid_backend`, `pyramid_beta`,
+    /// `pyramid_budget`, `pyramid_n_sink`) — this test pins that corrected,
+    /// leak-free payload. Being newly curated, `config_fields` no longer
+    /// contains `bit_width_inlier`/`seed` either; `pyramidkv`'s existing
+    /// `methodsIgnoringNetworkBitWidth` entry is therefore redundant but
+    /// harmless (`usesNetworkBitWidth` already short-circuits on
+    /// `configFields.contains` alone).
+    ///
+    /// The same commit fixed the #358 `merge()` hasattr-guard batching bug
+    /// for `pyramidkv` too (9th confirmed occurrence) — unrelated to
+    /// `config_fields`/`field_schema`. Issue #24 also asked to confirm the
+    /// picker/detail banner surface the not-trimmable limitation before
+    /// Start Job; that's exactly what
+    /// `notTrimmableMethodIsServableAndDoesNotBlockStart` verifies. No
+    /// Swift change needed for either fix.
+    @Test func pyramidkvExcludesInternalResolvedBudgetField() throws {
+        let json = """
+        {
+          "name": "pyramidkv",
+          "family": "eviction",
+          "serve_tier": "not_trimmable",
+          "serve_tier_label": "available (no prompt-cache trimming)",
+          "is_servable": true,
+          "blurb": "PyramidKV: layer-varying budgets, wider at shallow layers.",
+          "config_fields": ["pyramid_backend", "pyramid_beta", "pyramid_budget", "pyramid_n_sink"],
+          "field_schema": [
+            {"name": "pyramid_backend", "type": "str", "default": "reference", "optional": false, "help": null},
+            {"name": "pyramid_beta", "type": "float", "default": 2.0, "optional": false, "help": null},
+            {"name": "pyramid_budget", "type": "int", "default": 512, "optional": false, "help": null},
+            {"name": "pyramid_n_sink", "type": "int", "default": 4, "optional": false, "help": null}
+          ],
+          "coverage": "none",
+          "coverage_label": "no estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": "serves correctly, but reports is_trimmable() == False, so mlx_lm.server cannot trim its prompt cache — trim() would roll back offset bookkeeping without reverting internal eviction state. Expected for eviction/compression caches (#152).",
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let pyramidkv = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(pyramidkv.fieldSchema.count == 4)
+        #expect(pyramidkv.configFields == ["pyramid_backend", "pyramid_beta", "pyramid_budget", "pyramid_n_sink"])
+        #expect(!pyramidkv.configFields.contains("pyramid_resolved_budget"))
+        #expect(!pyramidkv.usesNetworkBitWidth)
+        #expect(pyramidkv.isServable)
+        #expect(pyramidkv.unsupportedReason?.contains("is_trimmable() == False") == true)
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its
