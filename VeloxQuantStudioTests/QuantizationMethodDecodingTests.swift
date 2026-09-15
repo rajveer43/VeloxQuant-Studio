@@ -861,6 +861,71 @@ struct QuantizationMethodDecodingTests {
         #expect(snapkv.unsupportedReason?.contains("is_trimmable() == False") == true)
     }
 
+    /// Issue #28 (`squeeze`, eviction): same `not_trimmable` shape and same
+    /// `field_schema`-leak bug class as `pyramidkv` (#24), but resolved
+    /// differently at runtime — `KVCacheBuilder._build_squeeze` never
+    /// writes `squeeze_resolved_budget` via `dataclasses.replace`; instead
+    /// every layer shares a `SqueezeCoordinator` object and pulls its
+    /// resolved per-layer budget from it once every layer has reported
+    /// prefill concentration. `squeeze_resolved_budget` only exists as a
+    /// manual override for single-cache/testing construction with no
+    /// coordinator, but shared the `squeeze_` prefix with the three real
+    /// knobs, so `squeeze` being uncurated let it leak into
+    /// `config_fields`/`field_schema` the same way `pyramid_resolved_budget`
+    /// did — flagged as still-open in the `pyramidkv` fix, now fixed
+    /// upstream in `VeloxQuant-MLX#372` by curating `_CONFIG_FIELDS["squeeze"]`
+    /// down to the three real fields.
+    ///
+    /// Unlike `snapkv` (#27), `squeeze`'s `is_trimmable()` was already
+    /// correctly `False` before this fix — only `merge()` (13th confirmed
+    /// #358 occurrence) and the field leak needed fixing. Live-verifying
+    /// the `merge()` fix also reproduced the same eviction/causal-mask
+    /// architectural bug already filed as backend issue #370 (found
+    /// verifying `snapkv` #27) — confirmed systemic across the whole
+    /// eviction family (none of `h2o`, `tova`, `pyramidkv`, `chunkkv`,
+    /// `cam`, `snapkv`, `squeeze` override `make_mask`), deliberately left
+    /// unfixed here as it needs shared mask-building changes, not a
+    /// per-cache patch.
+    ///
+    /// `squeeze` was already correctly listed in
+    /// `methodsIgnoringNetworkBitWidth`; being curated, `config_fields`
+    /// never included `bit_width_inlier`/`seed` in the first place, so that
+    /// entry is redundant but harmless (same situation as `pyramidkv`). No
+    /// Swift change needed for any of the fixes.
+    @Test func squeezeExcludesInternalResolvedBudgetField() throws {
+        let json = """
+        {
+          "name": "squeeze",
+          "family": "eviction",
+          "serve_tier": "not_trimmable",
+          "serve_tier_label": "available (no prompt-cache trimming)",
+          "is_servable": true,
+          "blurb": "SqueezeAttention: reallocates budget across layers by importance.",
+          "config_fields": ["squeeze_budget", "squeeze_n_sink", "squeeze_strength"],
+          "field_schema": [
+            {"name": "squeeze_budget", "type": "int", "default": 512, "optional": false, "help": null},
+            {"name": "squeeze_n_sink", "type": "int", "default": 4, "optional": false, "help": null},
+            {"name": "squeeze_strength", "type": "float", "default": 1.0, "optional": false, "help": null}
+          ],
+          "coverage": "none",
+          "coverage_label": "no estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": "serves correctly, but reports is_trimmable() == False, so mlx_lm.server cannot trim its prompt cache — trim() would roll back offset bookkeeping without reverting internal eviction state. Expected for eviction/compression caches (#152).",
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let squeeze = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(squeeze.fieldSchema.count == 3)
+        #expect(squeeze.configFields == ["squeeze_budget", "squeeze_n_sink", "squeeze_strength"])
+        #expect(!squeeze.configFields.contains("squeeze_resolved_budget"))
+        #expect(!squeeze.usesNetworkBitWidth)
+        #expect(squeeze.isServable)
+        #expect(squeeze.unsupportedReason?.contains("is_trimmable() == False") == true)
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its
