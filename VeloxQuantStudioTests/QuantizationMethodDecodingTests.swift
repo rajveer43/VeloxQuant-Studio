@@ -1339,6 +1339,94 @@ struct QuantizationMethodDecodingTests {
         #expect(zipcache.unsupportedReason == nil)
     }
 
+    /// Issue #1 (`a2ats`, hybrid): `A2ATSKVCache` is uncurated (12 config
+    /// fields via the generic `_GENERIC_FIELDS` + prefix-match fallback,
+    /// including two `"unknown"`-typed fields — `a2ats_codebook` and
+    /// `a2ats_query_h` — whose `default` is JSON `null`). Confirmed
+    /// `bit_width_inlier` is never read in `__init__`, so its correct
+    /// `methodsIgnoringNetworkBitWidth` membership holds. `ConfigField.type`
+    /// is a plain `String` never branched on in production code, so the
+    /// `"unknown"` type value is inert — the parameter editor renders it via
+    /// the same generic `TextField` as every other field.
+    ///
+    /// Found and fixed two real bugs verifying this issue, both in
+    /// VeloxQuant-MLX (this Swift file only needed new test coverage):
+    /// (1) `A2ATSKVCache` had no `merge()` guard — the same #358 shape as
+    /// `xkv`/`xquant`/`zipcache`/`squeeze` (`update_and_fetch` populates the
+    /// base class's `self.keys`/`self.values`, so the inherited `merge()`
+    /// doesn't crash, it silently substitutes a plain `BatchKVCache`,
+    /// discarding codebook quantization, windowed-RoPE state, and
+    /// retrieval-set byte accounting). (2) `paper_deviation` was stale —
+    /// it described two bugs (far keys wrongly rotated, distance gating
+    /// frozen at write time) that VeloxQuant-MLX#29 already fixed months
+    /// ago, so the method detail card's orange caption was telling users
+    /// about bugs that no longer exist. Both fixed upstream in
+    /// VeloxQuant-MLX#385; the corrected `paper_deviation` text below is
+    /// what that fix actually returns live.
+    ///
+    /// This pins the corrected payload so a regression in either the fixed
+    /// text or the config field shape is caught here, not only by the
+    /// Python-side registry test.
+    @Test func a2atsExposesFullFieldSchemaAndCorrectedPaperDeviation() throws {
+        let json = """
+        {
+          "name": "a2ats",
+          "family": "hybrid",
+          "serve_tier": "accounting_only",
+          "serve_tier_label": "available",
+          "is_servable": true,
+          "blurb": "A2ATS-adapted: rotary-aware vector quantization with distance gating.",
+          "config_fields": ["bit_width_inlier", "seed", "a2ats_b", "a2ats_beta", "a2ats_codebook", "a2ats_codebook_bits", "a2ats_query_h", "a2ats_retrieval_fraction", "a2ats_rope_base", "a2ats_sub_dim", "a2ats_use_query_aware", "a2ats_window"],
+          "field_schema": [
+            {"name": "bit_width_inlier", "type": "int", "default": 2, "optional": false, "help": "Bits per element for the main quantizer."},
+            {"name": "seed", "type": "int", "default": 42, "optional": false, "help": "Random seed for rotations / sketches."},
+            {"name": "a2ats_b", "type": "int", "default": 2048, "optional": false, "help": null},
+            {"name": "a2ats_beta", "type": "float", "default": 0.5, "optional": false, "help": null},
+            {"name": "a2ats_codebook", "type": "unknown", "default": null, "optional": false, "help": null},
+            {"name": "a2ats_codebook_bits", "type": "int", "default": 8, "optional": false, "help": null},
+            {"name": "a2ats_query_h", "type": "unknown", "default": null, "optional": false, "help": null},
+            {"name": "a2ats_retrieval_fraction", "type": "float", "default": 0.2, "optional": false, "help": null},
+            {"name": "a2ats_rope_base", "type": "float", "default": 10000.0, "optional": false, "help": null},
+            {"name": "a2ats_sub_dim", "type": "int", "default": 8, "optional": false, "help": null},
+            {"name": "a2ats_use_query_aware", "type": "bool", "default": true, "optional": false, "help": null},
+            {"name": "a2ats_window", "type": "int", "default": 128, "optional": false, "help": null}
+          ],
+          "coverage": "keys_and_values",
+          "coverage_label": "full estimate",
+          "paper_deviation": "Query-aware codebook assignment defaults to a cosine-blend approximation rather than the paper's exact H-weighted objective (Eq. 13/14); pass a calibrated a2ats_query_h to enable the paper-faithful path. (The windowed-RoPE rotation and write-time distance-gating deviations this note used to describe were fixed by #29 — far keys are now correctly left unrotated and distance gating is recomputed against the current decode position, not frozen at write time.)",
+          "is_adapted": true,
+          "unsupported_reason": null,
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let a2ats = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(a2ats.configFields.count == 12)
+        #expect(a2ats.configFields.contains("bit_width_inlier"))
+        #expect(!a2ats.usesNetworkBitWidth)
+        #expect(a2ats.isServable)
+        #expect(a2ats.unsupportedReason == nil)
+        #expect(a2ats.isAdapted)
+
+        let deviation = try #require(a2ats.paperDeviation)
+        #expect(deviation.contains("cosine-blend"))
+        #expect(deviation.contains("fixed by #29"))
+        #expect(!deviation.contains("rotates far keys that the paper leaves unrotated"))
+
+        // The two unknown-typed fields with a JSON `null` default must
+        // decode without throwing and without corrupting the rest of the
+        // array — Optional<JSONValue> unwraps a JSON null to Swift `nil`
+        // (JSONValue.null is only ever reached for a non-optional JSONValue,
+        // e.g. inside a decoded .array's elements), so selectMethod's
+        // `if let defaultValue = field.defaultValue` correctly leaves these
+        // two fields unset rather than prefilling an empty string.
+        let codebookField = try #require(a2ats.fieldSchema.first { $0.name == "a2ats_codebook" })
+        let queryHField = try #require(a2ats.fieldSchema.first { $0.name == "a2ats_query_h" })
+        #expect(codebookField.defaultValue == nil)
+        #expect(queryHField.defaultValue == nil)
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its

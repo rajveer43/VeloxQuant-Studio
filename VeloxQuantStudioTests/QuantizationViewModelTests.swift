@@ -194,6 +194,50 @@ struct QuantizationViewModelTests {
         #expect(viewModel.parameterOverrides["gear_rank"] == nil)
     }
 
+    /// Issue #1 (`a2ats`, hybrid): same null-default shape as `gear_rank`
+    /// (#9) above, but for two `"unknown"`-typed fields simultaneously —
+    /// `a2ats_codebook` and `a2ats_query_h` both have a JSON `null` default,
+    /// which `Optional<JSONValue>` decodes as Swift `nil` (not
+    /// `Optional(.null)`), so `selectMethod`'s `if let` guard correctly
+    /// leaves both unset rather than prefilling an empty string a user
+    /// would then need to notice and clear. Both fields are meant to stay
+    /// unset for ordinary use — the cache falls back to a random-init
+    /// codebook / the decode-path cosine-blend approximation when omitted
+    /// (see the corrected `paper_deviation` text, VeloxQuant-MLX#385) —
+    /// so an accidental `""` prefill would be silently wrong, not just
+    /// cosmetic, once `QuantizationService` sends it as `--set
+    /// a2ats_codebook=`.
+    @Test func selectingA2ATSPrefillsTenRealFieldsExceptTwoNullDefaults() async {
+        let a2ats = makeMethod(name: "a2ats", family: .hybrid, fieldSchema: [
+            ConfigField(name: "bit_width_inlier", type: "int", optional: false, defaultValue: .int(2), help: nil),
+            ConfigField(name: "seed", type: "int", optional: false, defaultValue: .int(42), help: nil),
+            ConfigField(name: "a2ats_b", type: "int", optional: false, defaultValue: .int(2048), help: nil),
+            ConfigField(name: "a2ats_beta", type: "float", optional: false, defaultValue: .double(0.5), help: nil),
+            ConfigField(name: "a2ats_codebook", type: "unknown", optional: false, defaultValue: nil, help: nil),
+            ConfigField(name: "a2ats_codebook_bits", type: "int", optional: false, defaultValue: .int(8), help: nil),
+            ConfigField(name: "a2ats_query_h", type: "unknown", optional: false, defaultValue: nil, help: nil),
+            ConfigField(name: "a2ats_retrieval_fraction", type: "float", optional: false, defaultValue: .double(0.2), help: nil),
+            ConfigField(name: "a2ats_rope_base", type: "float", optional: false, defaultValue: .double(10000.0), help: nil),
+            ConfigField(name: "a2ats_sub_dim", type: "int", optional: false, defaultValue: .int(8), help: nil),
+            ConfigField(name: "a2ats_use_query_aware", type: "bool", optional: false, defaultValue: .bool(true), help: nil),
+            ConfigField(name: "a2ats_window", type: "int", optional: false, defaultValue: .int(128), help: nil),
+        ])
+        let viewModel = await makeViewModel(methods: [a2ats])
+
+        viewModel.selectMethod(a2ats)
+
+        #expect(viewModel.parameterOverrides["a2ats_b"] == "2048")
+        #expect(viewModel.parameterOverrides["a2ats_beta"] == "0.5")
+        #expect(viewModel.parameterOverrides["a2ats_codebook_bits"] == "8")
+        #expect(viewModel.parameterOverrides["a2ats_retrieval_fraction"] == "0.2")
+        #expect(viewModel.parameterOverrides["a2ats_rope_base"] == "10000.0")
+        #expect(viewModel.parameterOverrides["a2ats_sub_dim"] == "8")
+        #expect(viewModel.parameterOverrides["a2ats_use_query_aware"] == "true")
+        #expect(viewModel.parameterOverrides["a2ats_window"] == "128")
+        #expect(viewModel.parameterOverrides["a2ats_codebook"] == nil)
+        #expect(viewModel.parameterOverrides["a2ats_query_h"] == nil)
+    }
+
     /// Issue #30 (`svdq`): `selectMethod` must prefill an array-typed
     /// field's default using `JSONValue.cliOverrideString`
     /// (`"8,4,2,1,1,0,0,0"`), not `displayString` (`"[8, 4, 2, 1, 1, 0, 0,
