@@ -364,6 +364,33 @@ struct QuantizationViewModelTests {
         #expect(viewModel.activeJob == nil)
     }
 
+    /// Issue #38 (`qjl`, quantization): same architecture as polar (#37) —
+    /// `QJLKVCache` is a standalone `core.abstractions.KVCache` (JL-sketch
+    /// signs + int8 values via append_key/append_value/attend), not an
+    /// `mlx_lm` KVCache subclass, so it's explicitly listed in
+    /// `STANDALONE_METHODS` rather than being a small adapter gap.
+    /// `veloxquant serve --method qjl` refuses upfront with this exact text
+    /// (verified live). Pins the same crashes-tier gating guarantees to
+    /// qjl's own name and real `unsupported_reason` text.
+    @Test func qjlIsUnsupportedAndBlocksStartBeforeSubmission() async {
+        let qjl = makeMethod(name: "qjl", family: .quantization, serveTier: .crashes)
+        let viewModel = await makeViewModel(methods: [qjl], models: [
+            LocalModel(repoID: "mlx-community/Qwen2.5-0.5B-Instruct-4bit", sizeBytes: 0, sizeLabel: "0", isMLXCommunity: true),
+        ])
+        viewModel.selectMethod(qjl)
+
+        #expect(viewModel.servableMethods.isEmpty)
+        #expect(viewModel.unsupportedMethods.map(\.name) == ["qjl"])
+        #expect(!viewModel.canStart)
+        #expect(viewModel.startBlockedReason == "qjl does not subclass mlx_lm KVCache")
+
+        // Defense in depth: even if a caller reaches startJob() directly
+        // (bypassing the disabled button), the method-level isServable guard
+        // inside startJob() itself must still refuse to launch a job.
+        viewModel.startJob()
+        #expect(viewModel.activeJob == nil)
+    }
+
     /// Issue #2: VeloxQuant-MLX #31 fixed `adakv`'s degenerate default
     /// (`target_avg_bits == lo_bit`, which flattens every head to the same
     /// bit-width) by moving the default off the boundary — but a user can
