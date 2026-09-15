@@ -798,6 +798,69 @@ struct QuantizationMethodDecodingTests {
         #expect(skvq.unsupportedReason == nil)
     }
 
+    /// Issue #27 (`snapkv`, eviction): same `not_trimmable` shape as
+    /// `knorm`/`kvzip`/`morphkv`/`nestedkv`/`pyramidkv`/`qfilters` —
+    /// uncurated, so `config_fields` carries `bit_width_inlier`/`seed` via
+    /// `_default_config_fields()` even though `SnapKVKVCache` never reads
+    /// them; already correctly listed in `methodsIgnoringNetworkBitWidth`.
+    ///
+    /// Unlike the prior `not_trimmable` methods in this queue, `snapkv`'s
+    /// `is_trimmable() == False` was *newly added* by the fix for this
+    /// issue (upstream VeloxQuant-MLX#371) — before the fix, `snapkv`
+    /// inherited the base class's `is_trimmable() == True`, but its
+    /// `trim(n)` was actively wrong, not just unsupported: outside
+    /// `update_and_fetch` this class's `offset` property returns
+    /// `_true_offset` (the absolute RoPE position) rather than
+    /// `_row_offset` (the retained row count the buffer actually holds), so
+    /// `trim()` clamped against the wrong, larger number and could leave
+    /// `_row_offset` bigger than the number of rows ever written —
+    /// `update_and_fetch` would then return a slice reaching into
+    /// stale/uninitialized buffer rows as real cached tokens, corrupting
+    /// generation silently rather than crashing. Reproduced upstream with
+    /// budget=4, 20 real tokens: `trim(3)` left `_row_offset=17` though
+    /// only 4 rows were real. Fixed by hardcoding `is_trimmable() ->
+    /// False`, matching every other eviction/compression cache — this is
+    /// why the picker/detail-banner guarantee below matters more here than
+    /// for the generic `not_trimmable` case: pre-fix, the picker had no way
+    /// to warn about this at all, since the method claimed to be trimmable.
+    ///
+    /// The same commit fixed the standard #358 `merge()` hasattr-guard
+    /// batching bug (12th confirmed occurrence). Fixing `merge()` also
+    /// exposed a third, separate, architectural bug — prefill eviction
+    /// mismatching query/key lengths under MLX's `mask="causal"` fast path
+    /// (upstream issue #370, also affecting `squeeze` #28 and
+    /// `streaming_llm` #29) — filed separately as out of scope for this fix
+    /// since it's a generation-quality bug, not a `config_fields`/UI
+    /// surface. `field_schema` needed no changes for any of the three bugs;
+    /// no Swift change needed either.
+    @Test func snapkvDoesNotUseNetworkBitWidth() throws {
+        let json = """
+        {
+          "name": "snapkv",
+          "family": "eviction",
+          "serve_tier": "not_trimmable",
+          "serve_tier_label": "available (no prompt-cache trimming)",
+          "is_servable": true,
+          "blurb": "SnapKV: keeps tokens an observation window attends to most.",
+          "config_fields": ["bit_width_inlier", "seed", "snap_backend", "snap_batched_scoring", "snap_budget", "snap_dtype", "snap_n_sink", "snap_obs_window"],
+          "field_schema": [],
+          "coverage": "none",
+          "coverage_label": "no estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": "serves correctly, but reports is_trimmable() == False, so mlx_lm.server cannot trim its prompt cache — trim() would roll back offset bookkeeping without reverting internal eviction state. Expected for eviction/compression caches (#152).",
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let snapkv = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(snapkv.configFields.contains("bit_width_inlier"))
+        #expect(!snapkv.usesNetworkBitWidth)
+        #expect(snapkv.isServable)
+        #expect(snapkv.unsupportedReason?.contains("is_trimmable() == False") == true)
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its
