@@ -986,6 +986,53 @@ struct QuantizationMethodDecodingTests {
         #expect(streamingLLM.unsupportedReason?.contains("is_trimmable() == False") == true)
     }
 
+    /// Issue #31 (`tova`, eviction): same `not_trimmable` shape as
+    /// `knorm`/`kvzip`/`morphkv`/`nestedkv`/`qfilters`/`snapkv`/
+    /// `streaming_llm` — uncurated, so `config_fields` carries
+    /// `bit_width_inlier`/`seed` via `_default_config_fields()` even though
+    /// `TOVAKVCache` never reads them; already correctly listed in
+    /// `methodsIgnoringNetworkBitWidth`.
+    ///
+    /// The clean baseline case among this recent run of eviction-family
+    /// verifications: only the standard #358 `merge()` hasattr-guard
+    /// batching bug needed fixing (upstream VeloxQuant-MLX#375), live-
+    /// verified via a real `veloxquant serve --method tova` process
+    /// (`/v1/kv/stats` went from `tokens.retained=0` pre-fix to correctly
+    /// tracking `tova_budget` enforcement post-fix). No `field_schema`
+    /// leak (unlike `pyramidkv`/`squeeze`) — `tova`'s three real fields
+    /// already resolved correctly via the uncurated name-prefix fallback —
+    /// and no mask-family corruption (unlike `snapkv`/`squeeze`/
+    /// `streaming_llm`, tracked as backend issue #370): `tova_cache.py`
+    /// never builds its own causal mask, so that bug class doesn't apply
+    /// here. No Swift change needed.
+    @Test func tovaDoesNotUseNetworkBitWidth() throws {
+        let json = """
+        {
+          "name": "tova",
+          "family": "eviction",
+          "serve_tier": "not_trimmable",
+          "serve_tier_label": "available (no prompt-cache trimming)",
+          "is_servable": true,
+          "blurb": "TOVA: single-token-per-step eviction by attention weight.",
+          "config_fields": ["bit_width_inlier", "seed", "tova_backend", "tova_budget", "tova_n_sink"],
+          "field_schema": [],
+          "coverage": "none",
+          "coverage_label": "no estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": "serves correctly, but reports is_trimmable() == False, so mlx_lm.server cannot trim its prompt cache — trim() would roll back offset bookkeeping without reverting internal eviction state. Expected for eviction/compression caches (#152).",
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let tova = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(tova.configFields.contains("bit_width_inlier"))
+        #expect(!tova.usesNetworkBitWidth)
+        #expect(tova.isServable)
+        #expect(tova.unsupportedReason?.contains("is_trimmable() == False") == true)
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its

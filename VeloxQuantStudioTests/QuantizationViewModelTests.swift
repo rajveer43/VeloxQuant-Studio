@@ -342,6 +342,9 @@ struct QuantizationViewModelTests {
     /// already correctly `False` before their own fixes (unlike `snapkv`)
     /// — only `merge()` guards (and, for `squeeze`, a `field_schema` leak;
     /// for `streaming_llm`, a `tokens_kept` telemetry gap) needed fixing.
+    /// `tova` (#31) is the clean baseline case among this recent run: only
+    /// the `merge()` guard needed fixing, no field leak, no mask bug
+    /// (`tova_cache.py` never builds its own causal mask).
     @Test(arguments: [
         ("amc", MethodFamily.eviction),
         ("anchorkv", MethodFamily.hybrid),
@@ -358,6 +361,7 @@ struct QuantizationViewModelTests {
         ("snapkv", MethodFamily.eviction),
         ("squeeze", MethodFamily.eviction),
         ("streaming_llm", MethodFamily.eviction),
+        ("tova", MethodFamily.eviction),
     ])
     func notTrimmableMethodIsServableAndDoesNotBlockStart(name: String, family: MethodFamily) async {
         let method = makeMethod(name: name, family: family, serveTier: .notTrimmable)
