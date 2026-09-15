@@ -466,6 +466,49 @@ struct QuantizationMethodDecodingTests {
         ])
     }
 
+    /// Issue #20 (`morphkv`, eviction): same `not_trimmable` shape as
+    /// `knorm` (#15) and `kvzip` (#18) — `morphkv` is uncurated, so
+    /// `_default_config_fields()` still prepends `bit_width_inlier` to
+    /// `config_fields` even though `MorphKVKVCache` never reads it (its
+    /// three real knobs are `morphkv_budget`, `morphkv_n_sink`,
+    /// `morphkv_window`, all sharing the `morphkv_` prefix). Captured
+    /// verbatim from a real `veloxquant methods --json` run, including the
+    /// exact `unsupported_reason` text (trim-safety rationale, issue #152)
+    /// the method detail banner must surface before Start Job — the
+    /// specific ask in issue #20. A real backend batching bug was found and
+    /// fixed for this method (issue #20, upstream `MorphKVKVCache.merge`
+    /// hasattr guard, same bug class as knorm/kvquant/kvtc/kvzip/minicache)
+    /// — that fix has no config/UI-visible surface and needs no Swift
+    /// change, since `morphkv` was already correctly listed in
+    /// `methodsIgnoringNetworkBitWidth`.
+    @Test func morphkvDoesNotUseNetworkBitWidth() throws {
+        let json = """
+        {
+          "name": "morphkv",
+          "family": "eviction",
+          "serve_tier": "not_trimmable",
+          "serve_tier_label": "available (no prompt-cache trimming)",
+          "is_servable": true,
+          "blurb": "MorphKV: correlation-aware constant-size cache.",
+          "config_fields": ["bit_width_inlier", "seed", "morphkv_budget", "morphkv_n_sink", "morphkv_window"],
+          "field_schema": [],
+          "coverage": "none",
+          "coverage_label": "no estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": "serves correctly, but reports is_trimmable() == False, so mlx_lm.server cannot trim its prompt cache — trim() would roll back offset bookkeeping without reverting internal eviction state. Expected for eviction/compression caches (#152).",
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let morphkv = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(morphkv.configFields.contains("bit_width_inlier"))
+        #expect(!morphkv.usesNetworkBitWidth)
+        #expect(morphkv.isServable)
+        #expect(morphkv.unsupportedReason?.contains("is_trimmable() == False") == true)
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its
