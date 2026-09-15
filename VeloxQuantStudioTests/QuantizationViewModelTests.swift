@@ -291,18 +291,18 @@ struct QuantizationViewModelTests {
     /// eviction), #7 (`chunkkv`, eviction), #8 (`curdkv`, eviction), #10
     /// (`h2o`, eviction), #11 (`keyformer`, eviction), #18 (`kvzip`,
     /// eviction), #20 (`morphkv`, eviction), #21 (`nestedkv`,
-    /// quantization), and #24 (`pyramidkv`, eviction): all decode to
-    /// `not_trimmable` with the exact same generic `unsupported_reason`
-    /// template from `registry.py`, so the fix must be generic across
-    /// families and methods, not keyed to one name. `not_trimmable` is
-    /// still `is_servable == true` — the method belongs in the "Servable"
-    /// section of the picker, and Start must stay enabled, even though it
-    /// carries a non-nil `unsupportedReason` (Python reuses that field for
-    /// the tier's explanatory text, not only for why a `crashes`-tier
-    /// method is blocked). This is exactly the guarantee issue #24 asked
-    /// to confirm: the picker and detail banner must make pyramidkv's
-    /// limitation clear *before* Start Job, not only as a server crash
-    /// after.
+    /// quantization), #24 (`pyramidkv`, eviction), and #25 (`qfilters`,
+    /// eviction): all decode to `not_trimmable` with the exact same generic
+    /// `unsupported_reason` template from `registry.py`, so the fix must be
+    /// generic across families and methods, not keyed to one name.
+    /// `not_trimmable` is still `is_servable == true` — the method belongs
+    /// in the "Servable" section of the picker, and Start must stay
+    /// enabled, even though it carries a non-nil `unsupportedReason`
+    /// (Python reuses that field for the tier's explanatory text, not only
+    /// for why a `crashes`-tier method is blocked). This is exactly the
+    /// guarantee issues #24 and #25 asked to confirm: the picker and detail
+    /// banner must make the method's limitation clear *before* Start Job,
+    /// not only as a server crash after.
     @Test(arguments: [
         ("amc", MethodFamily.eviction),
         ("anchorkv", MethodFamily.hybrid),
@@ -315,6 +315,7 @@ struct QuantizationViewModelTests {
         ("morphkv", MethodFamily.eviction),
         ("nestedkv", MethodFamily.quantization),
         ("pyramidkv", MethodFamily.eviction),
+        ("qfilters", MethodFamily.eviction),
     ])
     func notTrimmableMethodIsServableAndDoesNotBlockStart(name: String, family: MethodFamily) async {
         let method = makeMethod(name: name, family: family, serveTier: .notTrimmable)
