@@ -147,7 +147,7 @@ final class QuantizationViewModel {
         parameterOverrides = [:]
         for field in method.fieldSchema {
             if let defaultValue = field.defaultValue {
-                parameterOverrides[field.name] = defaultValue.displayString
+                parameterOverrides[field.name] = defaultValue.cliOverrideString
             }
         }
     }
@@ -202,7 +202,7 @@ final class QuantizationViewModel {
             bitWidth = value
         }
         for (key, value) in recommended.config.knobs {
-            parameterOverrides[key] = value.displayString
+            parameterOverrides[key] = value.cliOverrideString
         }
     }
 

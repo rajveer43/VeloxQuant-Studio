@@ -245,6 +245,23 @@ enum JSONValue: Codable, Hashable {
         case .null: ""
         }
     }
+
+    /// Value to prefill into the parameter editor's text field — distinct
+    /// from `displayString` only for `.array`. `--set`'s wire format for an
+    /// array-typed field (`svdq_bit_schedule`, `kvtc_bit_choices`) is bare
+    /// comma-separated ints (`serve.py`'s `parse_overrides`: `raw.split(",")`
+    /// then `int(x)` per element, no brackets or spaces tolerated) — feeding
+    /// it `displayString`'s bracketed `"[8, 4, 2, ...]"` fails to parse on
+    /// the very first token (`"[8"`). Before this existed, both forms
+    /// crashed the server either way (`--set` didn't special-case arrays at
+    /// all — see issue #30), so the mismatch was invisible; now that the
+    /// backend parses arrays correctly, this is what actually round-trips.
+    var cliOverrideString: String {
+        switch self {
+        case .array(let value): value.map(\.displayString).joined(separator: ",")
+        default: displayString
+        }
+    }
 }
 
 /// Response envelope for `veloxquant methods --json`.

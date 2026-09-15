@@ -926,6 +926,66 @@ struct QuantizationMethodDecodingTests {
         #expect(squeeze.unsupportedReason?.contains("is_trimmable() == False") == true)
     }
 
+    /// Issue #29 (`streaming_llm`, eviction): same `not_trimmable` shape as
+    /// `knorm`/`kvzip`/`morphkv`/`nestedkv`/`qfilters`/`snapkv` — uncurated,
+    /// so `config_fields` carries `bit_width_inlier`/`seed` via
+    /// `_default_config_fields()` even though `StreamingLLMKVCache` never
+    /// reads them; already correctly listed in
+    /// `methodsIgnoringNetworkBitWidth`.
+    ///
+    /// Two bugs found and fixed verifying this issue (upstream
+    /// VeloxQuant-MLX#373):
+    /// 1. The standard #358 `merge()` hasattr-guard batching-substitution
+    ///    bug (14th confirmed occurrence).
+    /// 2. A `tokens_kept` telemetry gap: every other eviction cache (h2o,
+    ///    tova, pyramidkv, snapkv, squeeze, ...) exposes a `tokens_kept`
+    ///    property that telemetry code probes via `hasattr`/`getattr`;
+    ///    `streaming_llm` only defined the semantically-identical
+    ///    `tokens_in_window`, so a `/v1/kv/stats`-style aggregator would
+    ///    silently report 0 retained tokens regardless of actual eviction
+    ///    state (`tokens_seen` alone already satisfied the "has telemetry"
+    ///    check, so the gap was invisible). Fixed by adding `tokens_kept`
+    ///    as an alias.
+    ///
+    /// Unlike `pyramidkv`/`squeeze`, no `field_schema` leak was found here:
+    /// both `stream_n_sink`/`stream_window_size` are genuinely user-facing,
+    /// with no internal "resolved" field hiding behind the `stream_`
+    /// prefix. This is also the third and final confirmation (after
+    /// `snapkv` #27 and `squeeze` #28) of the eviction-family
+    /// causal-mask/eviction architectural bug tracked as backend issue
+    /// #370 — `streaming_llm` evicts on every call rather than only during
+    /// prefill, so the corruption surfaces on every decode step once the
+    /// window saturates, not just the initial prompt. Deliberately left
+    /// unfixed, same scoping as #27/#28. Neither bug fixed here touches
+    /// `config_fields`/`field_schema`; no Swift change needed.
+    @Test func streamingLLMDoesNotUseNetworkBitWidth() throws {
+        let json = """
+        {
+          "name": "streaming_llm",
+          "family": "eviction",
+          "serve_tier": "not_trimmable",
+          "serve_tier_label": "available (no prompt-cache trimming)",
+          "is_servable": true,
+          "blurb": "StreamingLLM: attention sinks plus a sliding window.",
+          "config_fields": ["bit_width_inlier", "seed", "stream_n_sink", "stream_window_size"],
+          "field_schema": [],
+          "coverage": "none",
+          "coverage_label": "no estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": "serves correctly, but reports is_trimmable() == False, so mlx_lm.server cannot trim its prompt cache — trim() would roll back offset bookkeeping without reverting internal eviction state. Expected for eviction/compression caches (#152).",
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let streamingLLM = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(streamingLLM.configFields.contains("bit_width_inlier"))
+        #expect(!streamingLLM.usesNetworkBitWidth)
+        #expect(streamingLLM.isServable)
+        #expect(streamingLLM.unsupportedReason?.contains("is_trimmable() == False") == true)
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its
@@ -1011,6 +1071,89 @@ struct QuantizationMethodDecodingTests {
         }
         #expect(values.map(\.displayString) == ["0", "1", "2", "3", "4", "6", "8"])
         #expect(field.defaultValue?.displayString == "[0, 1, 2, 3, 4, 6, 8]")
+    }
+
+    /// Issue #30 (`svdq`): verifying a real quantization job with this
+    /// method surfaced a Swift bug distinct from anything the backend
+    /// fixed. `serve.py`'s `--set` parser now (upstream VeloxQuant-MLX#374)
+    /// correctly parses an `array`-typed field as bare comma-separated ints
+    /// (`raw.split(",")` then `int(x)` per element — no brackets or spaces
+    /// tolerated), but `QuantizationViewModel.selectMethod` prefilled
+    /// `parameterOverrides` from `JSONValue.displayString`, which renders an
+    /// array as `"[8, 4, 2, ...]"` — brackets and comma-space. Starting a
+    /// job for `svdq` (or `kvtc`) with `svdq_bit_schedule`/`kvtc_bit_choices`
+    /// left at its prefilled default would send `--set
+    /// svdq_bit_schedule=[8, 4, 2, 1, 1, 0, 0, 0]`, which the now-correctly-
+    /// strict backend parser rejects on its very first token (`"[8"`).
+    /// Before VeloxQuant-MLX#374, `--set` didn't special-case arrays at all
+    /// and crashed either way, so the mismatch was invisible — it only
+    /// became a live bug once the backend started parsing arrays correctly.
+    /// Fixed by adding `JSONValue.cliOverrideString`, used everywhere
+    /// `parameterOverrides` is prefilled from a default (`selectMethod`,
+    /// `applyRecommendedConfig`); `displayString` is unchanged and still
+    /// used for on-screen rendering elsewhere.
+    @Test func arrayDefaultCLIOverrideStringHasNoBracketsOrSpaces() throws {
+        let schedule = JSONValue.array([.int(8), .int(4), .int(2), .int(1), .int(1), .int(0), .int(0), .int(0)])
+
+        #expect(schedule.displayString == "[8, 4, 2, 1, 1, 0, 0, 0]")
+        #expect(schedule.cliOverrideString == "8,4,2,1,1,0,0,0")
+    }
+
+    /// Issue #30 (`svdq`, quantization): `svdq` is *curated* — like `kitty`
+    /// (#12), `kivi_sink` (#14), and `palu` (#23) — so `config_fields` never
+    /// includes `bit_width_inlier`/`seed`; already correctly excluded from
+    /// `usesNetworkBitWidth` via `configFields.contains` alone, with no
+    /// `methodsIgnoringNetworkBitWidth` entry needed.
+    ///
+    /// Verifying this issue found three real backend bugs, fixed upstream
+    /// in VeloxQuant-MLX#374, none of which touch `config_fields`/
+    /// `field_schema`: (1) a severe correctness bug — `_run_prefill_svd`
+    /// computed one shared SVD basis from head 0's keys and applied it to
+    /// every attention head, even though real heads have near-uncorrelated
+    /// key distributions; live-verified pre-fix output was pure noise
+    /// regardless of settings, post-fix output is grammatical. Fixed by
+    /// giving each head its own basis. (2) The standard #358 `merge()`
+    /// hasattr-guard batching bug (15th confirmed occurrence). (3) The
+    /// `--set` array-parsing bug covered by
+    /// `arrayDefaultCLIOverrideStringHasNoBracketsOrSpaces` above — the one
+    /// bug from this issue that *did* need a Swift-side fix
+    /// (`JSONValue.cliOverrideString`), since the app submits parameter
+    /// overrides through the exact same `--set key=value` CLI string path
+    /// `serve.py`'s `parse_overrides` consumes
+    /// (`QuantizationService.serveArguments(for:)`).
+    @Test func svdqExposesBitScheduleAsArrayField() throws {
+        let json = """
+        {
+          "name": "svdq",
+          "family": "quantization",
+          "serve_tier": "accounting_only",
+          "serve_tier_label": "available",
+          "is_servable": true,
+          "blurb": "SVDq: offline SVD to a latent basis, then mixed-precision on latents.",
+          "config_fields": ["svdq_rank", "svdq_energy_threshold", "svdq_bit_schedule", "svdq_group_size"],
+          "field_schema": [
+            {"name": "svdq_rank", "type": "int", "default": null, "optional": true, "help": "Latent rank; blank uses the energy threshold instead."},
+            {"name": "svdq_energy_threshold", "type": "float", "default": 0.95, "optional": false, "help": "Fraction of singular-value energy to retain."},
+            {"name": "svdq_bit_schedule", "type": "array", "default": [8, 4, 2, 1, 1, 0, 0, 0], "optional": false, "help": null},
+            {"name": "svdq_group_size", "type": "int", "default": 32, "optional": false, "help": null}
+          ],
+          "coverage": "keys_only",
+          "coverage_label": "partial estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": null,
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let svdq = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(!svdq.usesNetworkBitWidth)
+        #expect(svdq.isServable)
+        #expect(svdq.unsupportedReason == nil)
+
+        let schedule = try #require(svdq.fieldSchema.first { $0.name == "svdq_bit_schedule" })
+        #expect(schedule.defaultValue?.cliOverrideString == "8,4,2,1,1,0,0,0")
     }
 
     /// Guards against the failure mode fixed for issue #42: a method whose
