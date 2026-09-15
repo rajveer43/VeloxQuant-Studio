@@ -748,6 +748,56 @@ struct QuantizationMethodDecodingTests {
         #expect(qfilters.unsupportedReason?.contains("is_trimmable() == False") == true)
     }
 
+    /// Issue #26 (`skvq`, hybrid): `accounting_only` tier, same shape as
+    /// `minicache` (#19) and `palu` (#23) for tier gating — already covered
+    /// generically by `startBlockedReasonIsNilForServableMethod`. `skvq` is
+    /// uncurated, so `_default_config_fields()` still prepends
+    /// `bit_width_inlier`/`seed` even though `SKVQKVCache` never reads them
+    /// (its real knobs — `skvq_bits_key`, `skvq_bits_value`,
+    /// `skvq_clip_alpha`, `skvq_clip_search`, `skvq_group_size`,
+    /// `skvq_max_ctx`, `skvq_n_sink`, `skvq_reorder`, `skvq_window` — all
+    /// share the `skvq_` prefix). Already correctly listed in
+    /// `methodsIgnoringNetworkBitWidth`.
+    ///
+    /// Unlike the last several `not_trimmable` methods, this issue's
+    /// backend bug (the #358 `merge()` hasattr-guard batching-substitution
+    /// bug, 11th confirmed occurrence) had not yet been fixed upstream when
+    /// this issue was picked up — fixed in this same verification pass
+    /// (`VeloxQuant-MLX#383`), live-verified against a real `veloxquant
+    /// serve --method skvq` process (server log: "method 'skvq' has no
+    /// merge(); serving unbatched", followed by a successful chat
+    /// completion). `field_schema` was checked and found not to need
+    /// curation (all 9 `skvq_*` fields are real, consumed, user-facing
+    /// knobs). Neither the fix nor that check changes
+    /// `config_fields`/`field_schema` or needs a Swift change.
+    @Test func skvqDoesNotUseNetworkBitWidth() throws {
+        let json = """
+        {
+          "name": "skvq",
+          "family": "hybrid",
+          "serve_tier": "accounting_only",
+          "serve_tier_label": "available",
+          "is_servable": true,
+          "blurb": "SKVQ: sliding-window quantization with clipped dynamic range.",
+          "config_fields": ["bit_width_inlier", "seed", "skvq_bits_key", "skvq_bits_value", "skvq_clip_alpha", "skvq_clip_search", "skvq_group_size", "skvq_max_ctx", "skvq_n_sink", "skvq_reorder", "skvq_window"],
+          "field_schema": [],
+          "coverage": "keys_and_values",
+          "coverage_label": "full estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": null,
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let skvq = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(skvq.configFields.contains("bit_width_inlier"))
+        #expect(!skvq.usesNetworkBitWidth)
+        #expect(skvq.isServable)
+        #expect(skvq.unsupportedReason == nil)
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its
