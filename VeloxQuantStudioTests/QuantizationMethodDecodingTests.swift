@@ -410,6 +410,62 @@ struct QuantizationMethodDecodingTests {
         #expect(kvzip.unsupportedReason?.contains("is_trimmable() == False") == true)
     }
 
+    /// Issue #19 (`minicache`, hybrid): uncurated like `knorm`/`kvzip`, so
+    /// `bit_width_inlier` is present in `config_fields` from the generic
+    /// baseline prepend even though `MiniCacheKVCache` never reads it — its
+    /// five real knobs (`minicache_group_size`, `minicache_max_ctx`,
+    /// `minicache_retention_threshold`, `minicache_slerp_t`,
+    /// `minicache_start_frac`) all share the `minicache_` prefix instead.
+    /// Unlike `knorm`/`kvzip`, `minicache` is `accounting_only` (fully
+    /// servable, no `unsupported_reason`) rather than `not_trimmable` — pins
+    /// `field_schema` verbatim too, since issue #19 specifically calls out
+    /// verifying the parameter editor renders every real field. Captured
+    /// from a real `veloxquant methods --json` run. A real backend batching
+    /// bug was found and fixed for this method (issue #19, upstream
+    /// `MiniCacheKVCache.merge` hasattr guard, same bug class as
+    /// `knorm`/`kvquant`/`kvtc`/`kvzip`) — that fix has no config/UI-visible
+    /// surface and needs no Swift change, since `minicache` was already
+    /// correctly listed in `methodsIgnoringNetworkBitWidth`.
+    @Test func minicacheDoesNotUseNetworkBitWidth() throws {
+        let json = """
+        {
+          "name": "minicache",
+          "family": "hybrid",
+          "serve_tier": "accounting_only",
+          "serve_tier_label": "available",
+          "is_servable": true,
+          "blurb": "MiniCache: merges similar KV state across adjacent layers.",
+          "config_fields": ["bit_width_inlier", "seed", "minicache_group_size", "minicache_max_ctx", "minicache_retention_threshold", "minicache_slerp_t", "minicache_start_frac"],
+          "field_schema": [
+            {"name": "bit_width_inlier", "type": "int", "optional": false, "default": 2, "help": "Bits per element for the main quantizer."},
+            {"name": "seed", "type": "int", "optional": false, "default": 42, "help": "Random seed for rotations / sketches."},
+            {"name": "minicache_group_size", "type": "int", "optional": false, "default": 2, "help": null},
+            {"name": "minicache_max_ctx", "type": "int", "optional": false, "default": 8192, "help": null},
+            {"name": "minicache_retention_threshold", "type": "float", "optional": false, "default": 0.9, "help": null},
+            {"name": "minicache_slerp_t", "type": "float", "optional": false, "default": 0.5, "help": null},
+            {"name": "minicache_start_frac", "type": "float", "optional": false, "default": 0.5, "help": null}
+          ],
+          "coverage": "keys_and_values",
+          "coverage_label": "full estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": null,
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let minicache = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(minicache.configFields.contains("bit_width_inlier"))
+        #expect(!minicache.usesNetworkBitWidth)
+        #expect(minicache.isServable)
+        #expect(minicache.unsupportedReason == nil)
+        #expect(minicache.fieldSchema.map(\.name) == [
+            "bit_width_inlier", "seed", "minicache_group_size", "minicache_max_ctx",
+            "minicache_retention_threshold", "minicache_slerp_t", "minicache_start_frac",
+        ])
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its
