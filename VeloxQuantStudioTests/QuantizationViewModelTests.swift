@@ -292,23 +292,26 @@ struct QuantizationViewModelTests {
     /// (`h2o`, eviction), #11 (`keyformer`, eviction), #18 (`kvzip`,
     /// eviction), #20 (`morphkv`, eviction), #21 (`nestedkv`,
     /// quantization), #24 (`pyramidkv`, eviction), #25 (`qfilters`,
-    /// eviction), and #27 (`snapkv`, eviction): all decode to
-    /// `not_trimmable` with the exact same generic `unsupported_reason`
-    /// template from `registry.py`, so the fix must be generic across
-    /// families and methods, not keyed to one name. `not_trimmable` is
-    /// still `is_servable == true` — the method belongs in the "Servable"
-    /// section of the picker, and Start must stay enabled, even though it
-    /// carries a non-nil `unsupportedReason` (Python reuses that field for
-    /// the tier's explanatory text, not only for why a `crashes`-tier
-    /// method is blocked). This is exactly the guarantee issues #24, #25,
-    /// and #27 asked to confirm: the picker and detail banner must make the
-    /// method's limitation clear *before* Start Job, not only as a server
-    /// crash after. `snapkv` is a notable case: its `is_trimmable() ==
-    /// False` was newly added by the same fix that guards its `merge()` —
-    /// previously `trim()` silently corrupted the cache (see the decoding
-    /// test below) rather than merely rolling back bookkeeping, making the
-    /// picker/banner warning even more load-bearing than for the generic
-    /// case.
+    /// eviction), #27 (`snapkv`, eviction), and #28 (`squeeze`, eviction):
+    /// all decode to `not_trimmable` with the exact same generic
+    /// `unsupported_reason` template from `registry.py`, so the fix must be
+    /// generic across families and methods, not keyed to one name.
+    /// `not_trimmable` is still `is_servable == true` — the method belongs
+    /// in the "Servable" section of the picker, and Start must stay
+    /// enabled, even though it carries a non-nil `unsupportedReason`
+    /// (Python reuses that field for the tier's explanatory text, not only
+    /// for why a `crashes`-tier method is blocked). This is exactly the
+    /// guarantee issues #24, #25, #27, and #28 asked to confirm: the picker
+    /// and detail banner must make the method's limitation clear *before*
+    /// Start Job, not only as a server crash after. `snapkv` is a notable
+    /// case: its `is_trimmable() == False` was newly added by the same fix
+    /// that guards its `merge()` — previously `trim()` silently corrupted
+    /// the cache (see the decoding test below) rather than merely rolling
+    /// back bookkeeping, making the picker/banner warning even more
+    /// load-bearing than for the generic case. `squeeze`'s
+    /// `is_trimmable()` was already correctly `False` before its own #28
+    /// fix (unlike `snapkv`) — only its `merge()` guard and a
+    /// `field_schema` leak needed fixing.
     @Test(arguments: [
         ("amc", MethodFamily.eviction),
         ("anchorkv", MethodFamily.hybrid),
@@ -323,6 +326,7 @@ struct QuantizationViewModelTests {
         ("pyramidkv", MethodFamily.eviction),
         ("qfilters", MethodFamily.eviction),
         ("snapkv", MethodFamily.eviction),
+        ("squeeze", MethodFamily.eviction),
     ])
     func notTrimmableMethodIsServableAndDoesNotBlockStart(name: String, family: MethodFamily) async {
         let method = makeMethod(name: name, family: family, serveTier: .notTrimmable)
