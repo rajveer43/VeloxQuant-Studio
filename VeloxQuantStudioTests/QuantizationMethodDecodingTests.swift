@@ -1033,6 +1033,69 @@ struct QuantizationMethodDecodingTests {
         #expect(tova.unsupportedReason?.contains("is_trimmable() == False") == true)
     }
 
+    /// Issue #32 (`turboquant_rvq`, quantization): `turboquant_rvq` is
+    /// `DEFAULT_SERVE_METHOD` and already this suite's most-used fixture
+    /// (`decodesRealRegistryShape`, `methodDeclaringBitWidthInlierUsesNetworkBitWidth`,
+    /// and the bulk of `QuantizationViewModelTests`'s generic-behavior
+    /// tests) — its `config_fields`/`field_schema`/`docsURL` decoding was
+    /// already thoroughly pinned before this issue, and the real bug found
+    /// verifying it doesn't touch any of that surface, so this test exists
+    /// to document the finding rather than re-derive already-covered
+    /// decoding.
+    ///
+    /// `TurboQuantRVQKVCache` had no `merge()` guard — the 16th confirmed
+    /// occurrence of the #358 pattern, but with unusually wide blast
+    /// radius since this is the *default* method: unlike most prior
+    /// occurrences (which only degrade under concurrent request batching),
+    /// `mlx_lm.server`'s `PromptProcessingBatch.__init__` calls
+    /// `_merge_caches` unconditionally on *every* served request, including
+    /// a single non-concurrent one. Pre-fix, every request through the
+    /// default configuration silently ran uncompressed fp16
+    /// (`/v1/kv/stats` showed `compressed_bytes=0`, `ratio=null`) while the
+    /// server kept reporting `method="turboquant_rvq" bits=2`; a cache
+    /// restored from a real prefix-cache hit (non-empty `.keys`) would
+    /// instead crash outright (`ValueError: max() iterable argument is
+    /// empty`) rather than silently degrade. Fixed upstream in
+    /// VeloxQuant-MLX#376 with the standard raising-property guard;
+    /// live-verified real RVQ compression ratios (3.76x at 2-bit, 1.94x at
+    /// 4-bit) post-fix. `registry.py` was untouched by the fix — no
+    /// `config_fields`/`field_schema` change, so `usesNetworkBitWidth`
+    /// stays correctly `true` here (this is the one method in this recent
+    /// run of verifications that *should* use the Network section's bit
+    /// width control, unlike the uncurated eviction/compression methods
+    /// around it). No Swift change needed.
+    @Test func turboquantRVQUsesNetworkBitWidthAndConfigFieldsUnaffectedByMergeFix() throws {
+        let json = """
+        {
+          "name": "turboquant_rvq",
+          "family": "quantization",
+          "serve_tier": "accounting_only",
+          "serve_tier_label": "available",
+          "is_servable": true,
+          "blurb": "Residual vector quantization; the balanced default for serving.",
+          "config_fields": ["bit_width_inlier", "seed"],
+          "field_schema": [
+            {"name": "bit_width_inlier", "type": "int", "default": 2, "optional": false, "help": "Bits per element for the main quantizer."},
+            {"name": "seed", "type": "int", "default": 42, "optional": false, "help": "Random seed for rotations / sketches."}
+          ],
+          "coverage": "keys_only",
+          "coverage_label": "partial estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": null,
+          "docs_url": "https://veloxquant-mlx.netlify.app/docs/algorithms/rvq"
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let rvq = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(rvq.usesNetworkBitWidth)
+        #expect(rvq.isServable)
+        #expect(rvq.unsupportedReason == nil)
+        #expect(rvq.fieldSchema.count == 2)
+        #expect(rvq.docsURL == URL(string: "https://veloxquant-mlx.netlify.app/docs/algorithms/rvq"))
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its
