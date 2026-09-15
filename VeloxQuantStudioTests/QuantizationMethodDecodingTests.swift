@@ -369,6 +369,47 @@ struct QuantizationMethodDecodingTests {
         #expect(!knorm.usesNetworkBitWidth)
     }
 
+    /// Issue #18 (`kvzip`, eviction): same `not_trimmable` shape as `knorm`
+    /// (#15) — `kvzip` is uncurated, so `_default_config_fields()` still
+    /// prepends `bit_width_inlier` to `config_fields` even though
+    /// `KVzipKVCache` never reads it (its three real knobs are
+    /// `kvzip_budget`, `kvzip_n_sink`, `kvzip_probe`, all sharing the
+    /// `kvzip_` prefix). Captured verbatim from a real
+    /// `veloxquant methods --json` run, including the exact
+    /// `unsupported_reason` text (trim-safety rationale, issue #152) the
+    /// method detail banner must surface before Start Job. A real backend
+    /// batching bug was found and fixed for this method (issue #18,
+    /// upstream `KVzipKVCache.merge` hasattr guard) — that fix has no
+    /// config/UI-visible surface and needs no Swift change, since `kvzip`
+    /// was already correctly listed in `methodsIgnoringNetworkBitWidth`.
+    @Test func kvzipDoesNotUseNetworkBitWidth() throws {
+        let json = """
+        {
+          "name": "kvzip",
+          "family": "eviction",
+          "serve_tier": "not_trimmable",
+          "serve_tier_label": "available (no prompt-cache trimming)",
+          "is_servable": true,
+          "blurb": "KVzip: query-agnostic eviction via context reconstruction.",
+          "config_fields": ["bit_width_inlier", "seed", "kvzip_budget", "kvzip_n_sink", "kvzip_probe"],
+          "field_schema": [],
+          "coverage": "none",
+          "coverage_label": "no estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": "serves correctly, but reports is_trimmable() == False, so mlx_lm.server cannot trim its prompt cache — trim() would roll back offset bookkeeping without reverting internal eviction state. Expected for eviction/compression caches (#152).",
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let kvzip = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(kvzip.configFields.contains("bit_width_inlier"))
+        #expect(!kvzip.usesNetworkBitWidth)
+        #expect(kvzip.isServable)
+        #expect(kvzip.unsupportedReason?.contains("is_trimmable() == False") == true)
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its
