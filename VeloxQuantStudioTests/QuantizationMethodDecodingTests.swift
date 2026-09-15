@@ -698,6 +698,56 @@ struct QuantizationMethodDecodingTests {
         #expect(pyramidkv.unsupportedReason?.contains("is_trimmable() == False") == true)
     }
 
+    /// Issue #25 (`qfilters`, eviction): same `not_trimmable` shape as
+    /// `knorm` (#15), `kvzip` (#18), `morphkv` (#20), and `nestedkv` (#21)
+    /// — `qfilters` is uncurated, so `_default_config_fields()` still
+    /// prepends `bit_width_inlier`/`seed` even though `QFiltersKVCache`
+    /// never reads them (its real knobs — `qfilters_budget`,
+    /// `qfilters_calib_tokens`, `qfilters_n_sink`, `qfilters_recent`,
+    /// `qfilters_sign` — all share the `qfilters_` prefix). Captured
+    /// verbatim from a real `veloxquant methods --json` run.
+    ///
+    /// Verifying this issue found the 10th confirmed occurrence of the
+    /// #358 `merge()` hasattr-guard batching-substitution bug (upstream
+    /// VeloxQuant-MLX#368) — unlike `palu` (#23) and `pyramidkv` (#24),
+    /// `field_schema` here was checked and found NOT to need curation: all
+    /// five `qfilters_*` fields are real, consumed, user-facing knobs with
+    /// no internal/build-time-only field hiding behind the prefix fallback
+    /// (`use_metal_kernels` is a genuine non-prefixed field the cache
+    /// reads, but omitting it from `field_schema` matches established
+    /// precedent for already-curated sibling methods like `kivi`/
+    /// `vecinfer`). Neither the batching fix nor that check changes
+    /// `config_fields`/`field_schema` or needs a Swift change, since
+    /// `qfilters` was already correctly listed in
+    /// `methodsIgnoringNetworkBitWidth`.
+    @Test func qfiltersDoesNotUseNetworkBitWidth() throws {
+        let json = """
+        {
+          "name": "qfilters",
+          "family": "eviction",
+          "serve_tier": "not_trimmable",
+          "serve_tier_label": "available (no prompt-cache trimming)",
+          "is_servable": true,
+          "blurb": "Q-Filters: projects keys onto learned filters to score them.",
+          "config_fields": ["bit_width_inlier", "seed", "qfilters_budget", "qfilters_calib_tokens", "qfilters_n_sink", "qfilters_recent", "qfilters_sign"],
+          "field_schema": [],
+          "coverage": "none",
+          "coverage_label": "no estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": "serves correctly, but reports is_trimmable() == False, so mlx_lm.server cannot trim its prompt cache — trim() would roll back offset bookkeeping without reverting internal eviction state. Expected for eviction/compression caches (#152).",
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let qfilters = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(qfilters.configFields.contains("bit_width_inlier"))
+        #expect(!qfilters.usesNetworkBitWidth)
+        #expect(qfilters.isServable)
+        #expect(qfilters.unsupportedReason?.contains("is_trimmable() == False") == true)
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its
