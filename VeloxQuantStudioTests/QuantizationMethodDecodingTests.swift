@@ -1096,6 +1096,61 @@ struct QuantizationMethodDecodingTests {
         #expect(rvq.docsURL == URL(string: "https://veloxquant-mlx.netlify.app/docs/algorithms/rvq"))
     }
 
+    /// Issue #33 (`vecinfer`, quantization): `vecinfer` is curated (like
+    /// `kitty` #12, `kivi_sink` #14, `palu` #23, `svdq` #30), so
+    /// `config_fields` never includes `bit_width_inlier`/`seed` — already
+    /// correctly excluded from `usesNetworkBitWidth` via
+    /// `configFields.contains` alone. Tier gating (`accounting_only`) is
+    /// already covered generically by `startBlockedReasonIsNilForServableMethod`.
+    ///
+    /// `VecInferKVCache` had no `merge()` guard — the 17th confirmed #358
+    /// occurrence, the same clean shape as most recent methods in this
+    /// queue: pre-fix, `/v1/kv/stats` showed zero telemetry
+    /// (`compressed_bytes: 0`, `ratio: null`) on every request while the
+    /// dual-transform + codebook quantization this class exists for never
+    /// ran; post-fix, real compression is reported (keys ratio: 5.33,
+    /// values ratio: 16.0). Fixed upstream in VeloxQuant-MLX#377 with the
+    /// standard raising-property guard. A side finding — output is garbled
+    /// at default settings now that real VQ actually runs, since
+    /// `veloxquant serve` has no codebook-calibration path and this class's
+    /// own docstring already documents its random-init codebook as "only
+    /// useful for shape/wiring tests" — is a known, pre-existing limitation
+    /// rather than a bug, and out of scope for this fix. Neither finding
+    /// touches `config_fields`/`field_schema`; no Swift change needed.
+    @Test func vecinferDoesNotUseNetworkBitWidth() throws {
+        let json = """
+        {
+          "name": "vecinfer",
+          "family": "quantization",
+          "serve_tier": "accounting_only",
+          "serve_tier_label": "available",
+          "is_servable": true,
+          "blurb": "VecInfer: codebook vector quantization for aggressive compression.",
+          "config_fields": ["key_sub_dim", "value_sub_dim", "key_codebook_bits", "value_codebook_bits", "residual_length"],
+          "field_schema": [
+            {"name": "key_sub_dim", "type": "int", "default": 4, "optional": false, "help": null},
+            {"name": "value_sub_dim", "type": "int", "default": 8, "optional": false, "help": null},
+            {"name": "key_codebook_bits", "type": "int", "default": 12, "optional": false, "help": null},
+            {"name": "value_codebook_bits", "type": "int", "default": 8, "optional": false, "help": null},
+            {"name": "residual_length", "type": "int", "default": 128, "optional": false, "help": "Recent tokens kept uncompressed."}
+          ],
+          "coverage": "keys_and_values",
+          "coverage_label": "full estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": null,
+          "docs_url": "https://veloxquant-mlx.netlify.app/docs/algorithms/vecinfer"
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let vecinfer = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(!vecinfer.usesNetworkBitWidth)
+        #expect(vecinfer.isServable)
+        #expect(vecinfer.unsupportedReason == nil)
+        #expect(vecinfer.fieldSchema.count == 5)
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its
