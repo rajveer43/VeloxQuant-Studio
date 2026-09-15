@@ -194,6 +194,35 @@ struct QuantizationViewModelTests {
         #expect(viewModel.parameterOverrides["gear_rank"] == nil)
     }
 
+    /// Issue #30 (`svdq`): `selectMethod` must prefill an array-typed
+    /// field's default using `JSONValue.cliOverrideString`
+    /// (`"8,4,2,1,1,0,0,0"`), not `displayString` (`"[8, 4, 2, 1, 1, 0, 0,
+    /// 0]"`) — `QuantizationService.serveArguments(for:)` sends
+    /// `parameterOverrides` verbatim as `--set key=value`, and `serve.py`'s
+    /// `parse_overrides` (upstream VeloxQuant-MLX#374) parses an
+    /// `array`-typed override as bare comma-separated ints with no
+    /// brackets or spaces tolerated. Before that fix landed, `--set` had no
+    /// array handling at all and crashed either way, so a bracketed value
+    /// was just as broken as a correct one — this regression only became
+    /// live once the backend started parsing arrays correctly.
+    @Test func selectingSVDqPrefillsBitScheduleWithoutBracketsOrSpaces() async {
+        let svdq = makeMethod(name: "svdq", fieldSchema: [
+            ConfigField(name: "svdq_rank", type: "int", optional: true, defaultValue: nil, help: nil),
+            ConfigField(name: "svdq_energy_threshold", type: "float", optional: false, defaultValue: .double(0.95), help: nil),
+            ConfigField(
+                name: "svdq_bit_schedule", type: "array", optional: false,
+                defaultValue: .array([.int(8), .int(4), .int(2), .int(1), .int(1), .int(0), .int(0), .int(0)]),
+                help: nil
+            ),
+            ConfigField(name: "svdq_group_size", type: "int", optional: false, defaultValue: .int(32), help: nil),
+        ])
+        let viewModel = await makeViewModel(methods: [svdq])
+
+        viewModel.selectMethod(svdq)
+
+        #expect(viewModel.parameterOverrides["svdq_bit_schedule"] == "8,4,2,1,1,0,0,0")
+    }
+
     /// Issue #44: recommendConfig() populates recommendedConfig on success,
     /// and applyRecommendedConfig() then applies method/bits/knobs atomically
     /// to the manual form, mirroring applyPreset's atomic-apply guarantee.

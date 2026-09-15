@@ -1073,6 +1073,89 @@ struct QuantizationMethodDecodingTests {
         #expect(field.defaultValue?.displayString == "[0, 1, 2, 3, 4, 6, 8]")
     }
 
+    /// Issue #30 (`svdq`): verifying a real quantization job with this
+    /// method surfaced a Swift bug distinct from anything the backend
+    /// fixed. `serve.py`'s `--set` parser now (upstream VeloxQuant-MLX#374)
+    /// correctly parses an `array`-typed field as bare comma-separated ints
+    /// (`raw.split(",")` then `int(x)` per element — no brackets or spaces
+    /// tolerated), but `QuantizationViewModel.selectMethod` prefilled
+    /// `parameterOverrides` from `JSONValue.displayString`, which renders an
+    /// array as `"[8, 4, 2, ...]"` — brackets and comma-space. Starting a
+    /// job for `svdq` (or `kvtc`) with `svdq_bit_schedule`/`kvtc_bit_choices`
+    /// left at its prefilled default would send `--set
+    /// svdq_bit_schedule=[8, 4, 2, 1, 1, 0, 0, 0]`, which the now-correctly-
+    /// strict backend parser rejects on its very first token (`"[8"`).
+    /// Before VeloxQuant-MLX#374, `--set` didn't special-case arrays at all
+    /// and crashed either way, so the mismatch was invisible — it only
+    /// became a live bug once the backend started parsing arrays correctly.
+    /// Fixed by adding `JSONValue.cliOverrideString`, used everywhere
+    /// `parameterOverrides` is prefilled from a default (`selectMethod`,
+    /// `applyRecommendedConfig`); `displayString` is unchanged and still
+    /// used for on-screen rendering elsewhere.
+    @Test func arrayDefaultCLIOverrideStringHasNoBracketsOrSpaces() throws {
+        let schedule = JSONValue.array([.int(8), .int(4), .int(2), .int(1), .int(1), .int(0), .int(0), .int(0)])
+
+        #expect(schedule.displayString == "[8, 4, 2, 1, 1, 0, 0, 0]")
+        #expect(schedule.cliOverrideString == "8,4,2,1,1,0,0,0")
+    }
+
+    /// Issue #30 (`svdq`, quantization): `svdq` is *curated* — like `kitty`
+    /// (#12), `kivi_sink` (#14), and `palu` (#23) — so `config_fields` never
+    /// includes `bit_width_inlier`/`seed`; already correctly excluded from
+    /// `usesNetworkBitWidth` via `configFields.contains` alone, with no
+    /// `methodsIgnoringNetworkBitWidth` entry needed.
+    ///
+    /// Verifying this issue found three real backend bugs, fixed upstream
+    /// in VeloxQuant-MLX#374, none of which touch `config_fields`/
+    /// `field_schema`: (1) a severe correctness bug — `_run_prefill_svd`
+    /// computed one shared SVD basis from head 0's keys and applied it to
+    /// every attention head, even though real heads have near-uncorrelated
+    /// key distributions; live-verified pre-fix output was pure noise
+    /// regardless of settings, post-fix output is grammatical. Fixed by
+    /// giving each head its own basis. (2) The standard #358 `merge()`
+    /// hasattr-guard batching bug (15th confirmed occurrence). (3) The
+    /// `--set` array-parsing bug covered by
+    /// `arrayDefaultCLIOverrideStringHasNoBracketsOrSpaces` above — the one
+    /// bug from this issue that *did* need a Swift-side fix
+    /// (`JSONValue.cliOverrideString`), since the app submits parameter
+    /// overrides through the exact same `--set key=value` CLI string path
+    /// `serve.py`'s `parse_overrides` consumes
+    /// (`QuantizationService.serveArguments(for:)`).
+    @Test func svdqExposesBitScheduleAsArrayField() throws {
+        let json = """
+        {
+          "name": "svdq",
+          "family": "quantization",
+          "serve_tier": "accounting_only",
+          "serve_tier_label": "available",
+          "is_servable": true,
+          "blurb": "SVDq: offline SVD to a latent basis, then mixed-precision on latents.",
+          "config_fields": ["svdq_rank", "svdq_energy_threshold", "svdq_bit_schedule", "svdq_group_size"],
+          "field_schema": [
+            {"name": "svdq_rank", "type": "int", "default": null, "optional": true, "help": "Latent rank; blank uses the energy threshold instead."},
+            {"name": "svdq_energy_threshold", "type": "float", "default": 0.95, "optional": false, "help": "Fraction of singular-value energy to retain."},
+            {"name": "svdq_bit_schedule", "type": "array", "default": [8, 4, 2, 1, 1, 0, 0, 0], "optional": false, "help": null},
+            {"name": "svdq_group_size", "type": "int", "default": 32, "optional": false, "help": null}
+          ],
+          "coverage": "keys_only",
+          "coverage_label": "partial estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": null,
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let svdq = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(!svdq.usesNetworkBitWidth)
+        #expect(svdq.isServable)
+        #expect(svdq.unsupportedReason == nil)
+
+        let schedule = try #require(svdq.fieldSchema.first { $0.name == "svdq_bit_schedule" })
+        #expect(schedule.defaultValue?.cliOverrideString == "8,4,2,1,1,0,0,0")
+    }
+
     /// Guards against the failure mode fixed for issue #42: a method whose
     /// `family` the app doesn't recognize yet (e.g. a future cross-model
     /// `transfer` entry) must decode as `.unknown` rather than throwing and
