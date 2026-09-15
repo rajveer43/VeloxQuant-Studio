@@ -1208,6 +1208,85 @@ struct QuantizationMethodDecodingTests {
         #expect(xkv.unsupportedReason == nil)
     }
 
+    /// Issue #35 (`xquant`, quantization): `xquant` is curated — its
+    /// `config_fields` never includes `bit_width_inlier`/`seed` at all, so
+    /// `usesNetworkBitWidth` is already `false` via `configFields.contains`
+    /// alone; no `methodsIgnoringNetworkBitWidth` entry needed (it isn't
+    /// listed there, unlike `xkv` #34). Tier gating (`accounting_only`) is
+    /// already covered generically by `startBlockedReasonIsNilForServableMethod`.
+    ///
+    /// `xquant` is VeloxQuant-MLX's cross-layer KV-reuse mechanism
+    /// (anchor layers publish quantization codes, reuse layers borrow
+    /// them plus a residual, coordinated via `XQuantCoordinator`).
+    /// Verifying this issue found two real backend bugs, both fixed/filed
+    /// upstream:
+    /// 1. `XQuantKVCache` had no `merge()` guard — the 19th confirmed
+    ///    #358 occurrence, the same cross-layer-severing shape as `xkv`
+    ///    (#34): since `update_and_fetch` populates `self.keys`, the
+    ///    inherited `merge()` doesn't crash, it silently substitutes a
+    ///    plain `BatchKVCache`, severing every member of the coordinator
+    ///    group from its shared anchor/reuse relationship. Fixed upstream
+    ///    in VeloxQuant-MLX#381 with the standard guard.
+    /// 2. A more severe, distinct bug: the shipped default
+    ///    `xquant_residual_bits=0` produces incoherent output on real
+    ///    models at *every* bit-width (including near-lossless
+    ///    `base_bits=16`), because adjacent transformer layers' real keys
+    ///    are not correlated enough for pure cross-layer reuse (measured
+    ///    cosine similarity ~0, sometimes negative — the quantize/reuse
+    ///    math itself is correct; `residual_bits=4+` fully recovers
+    ///    coherent output). Filed as its own issue, VeloxQuant-MLX#380,
+    ///    since changing a shipped default has broader implications than
+    ///    a single method-verification fix.
+    ///
+    /// #380's own suggested minimal fix — warn in the field's help text,
+    /// since that's exactly what this app's parameter editor renders next
+    /// to the field — is applied in VeloxQuant-MLX#384 and pinned here:
+    /// `xquant_residual_bits` previously had no help text at all (`null`),
+    /// so nothing anywhere warned about the risk before a user hit it.
+    /// This test asserts the warning text now decodes correctly; the
+    /// broader default-value/correlation-aware-pairing question remains
+    /// open on #380. Neither the merge() fix nor the help-text addition
+    /// changes `config_fields`'s shape or requires further Swift changes —
+    /// the parameter editor already renders whatever `help` the backend
+    /// sends, with no per-field Swift code.
+    @Test func xquantResidualBitsHelpWarnsAboutUnsafeDefault() throws {
+        let json = """
+        {
+          "name": "xquant",
+          "family": "quantization",
+          "serve_tier": "accounting_only",
+          "serve_tier_label": "available",
+          "is_servable": true,
+          "blurb": "XQuant: cross-layer KV reuse with anchor layers plus residuals.",
+          "config_fields": ["xquant_group_size", "xquant_base_bits", "xquant_residual_bits", "xquant_group_quant_size", "xquant_max_ctx"],
+          "field_schema": [
+            {"name": "xquant_group_size", "type": "int", "default": 2, "optional": false, "help": null},
+            {"name": "xquant_base_bits", "type": "int", "default": 2, "optional": false, "help": null},
+            {"name": "xquant_residual_bits", "type": "int", "default": 0, "optional": false, "help": "Bits for the reuse layer's residual vs. the anchor's codes. The default 0 assumes adjacent layers are highly correlated, which often does not hold on real models and can produce incoherent output even at high base_bits — set to 4+ if generation degrades (see VeloxQuant-MLX#380)."},
+            {"name": "xquant_group_quant_size", "type": "int", "default": 32, "optional": false, "help": null},
+            {"name": "xquant_max_ctx", "type": "int", "default": 8192, "optional": false, "help": null}
+          ],
+          "coverage": "keys_and_values",
+          "coverage_label": "full estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": null,
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let xquant = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(!xquant.usesNetworkBitWidth)
+        #expect(xquant.isServable)
+        #expect(xquant.unsupportedReason == nil)
+
+        let residualBits = try #require(xquant.fieldSchema.first { $0.name == "xquant_residual_bits" })
+        let help = try #require(residualBits.help)
+        #expect(help.contains("incoherent"))
+        #expect(help.contains("VeloxQuant-MLX#380"))
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its
