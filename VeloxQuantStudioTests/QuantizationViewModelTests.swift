@@ -335,6 +335,35 @@ struct QuantizationViewModelTests {
         #expect(viewModel.startBlockedReason == nil)
     }
 
+    /// Issue #37 (`polar`, quantization): `PolarQuantKVCache` doesn't subclass
+    /// `mlx_lm` KVCache at all (it's a standalone `core.abstractions.KVCache`
+    /// with its own append_key/append_value/attend interface, not an adapter
+    /// gap) — `veloxquant serve --method polar` refuses upfront with this
+    /// exact text (verified live) rather than crashing mid-request. The app
+    /// must surface that *before* Start Job is pressed, not just let the CLI's
+    /// refusal be the user's first signal. Covered generically above via
+    /// `turboquant_prod`; this pins the same guarantees to polar's own name
+    /// and real `unsupported_reason` text so a regression here is caught even
+    /// if the generic crashes-tier test is ever narrowed.
+    @Test func polarIsUnsupportedAndBlocksStartBeforeSubmission() async {
+        let polar = makeMethod(name: "polar", family: .quantization, serveTier: .crashes)
+        let viewModel = await makeViewModel(methods: [polar], models: [
+            LocalModel(repoID: "mlx-community/Qwen2.5-0.5B-Instruct-4bit", sizeBytes: 0, sizeLabel: "0", isMLXCommunity: true),
+        ])
+        viewModel.selectMethod(polar)
+
+        #expect(viewModel.servableMethods.isEmpty)
+        #expect(viewModel.unsupportedMethods.map(\.name) == ["polar"])
+        #expect(!viewModel.canStart)
+        #expect(viewModel.startBlockedReason == "polar does not subclass mlx_lm KVCache")
+
+        // Defense in depth: even if a caller reaches startJob() directly
+        // (bypassing the disabled button), the method-level isServable guard
+        // inside startJob() itself must still refuse to launch a job.
+        viewModel.startJob()
+        #expect(viewModel.activeJob == nil)
+    }
+
     /// Issue #2: VeloxQuant-MLX #31 fixed `adakv`'s degenerate default
     /// (`target_avg_bits == lo_bit`, which flattens every head to the same
     /// bit-width) by moving the default off the boundary — but a user can
