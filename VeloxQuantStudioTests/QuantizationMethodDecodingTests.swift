@@ -1287,6 +1287,58 @@ struct QuantizationMethodDecodingTests {
         #expect(help.contains("VeloxQuant-MLX#380"))
     }
 
+    /// Issue #36 (`zipcache`, hybrid): uncurated, so `config_fields`
+    /// carries `bit_width_inlier`/`seed` via `_default_config_fields()`
+    /// even though `ZipCacheKVCache` never reads them; already correctly
+    /// listed in `methodsIgnoringNetworkBitWidth`. Tier gating
+    /// (`accounting_only`) is already covered generically by
+    /// `startBlockedReasonIsNilForServableMethod`.
+    ///
+    /// `ZipCacheKVCache` had no `merge()` guard — the 20th confirmed #358
+    /// occurrence, the same silent-success shape as `xkv`/`xquant`/
+    /// `squeeze` (since `update_and_fetch` populates `self.keys`/
+    /// `self.values`, the inherited `merge()` doesn't crash, it silently
+    /// substitutes a plain `BatchKVCache`, discarding per-token saliency
+    /// routing and mixed-bit byte accounting). Fixed upstream in
+    /// VeloxQuant-MLX#382. Unlike `xquant` (#35), no default-configuration
+    /// quality issue was found — chat completions were coherent both
+    /// before and after the fix at default settings.
+    ///
+    /// `field_schema` was independently verified correct: `zipcache` falls
+    /// back to the uncurated prefix-match fallback and correctly resolves
+    /// all five `zipcache_*` knobs, no leak. The shared #378 byte-
+    /// accounting bug was also confirmed to apply here (added to that
+    /// issue's file list, not fixed inline — out of scope, same as for
+    /// `xkv`/`svdq`). Neither finding changes `config_fields`/
+    /// `field_schema`; no Swift change needed.
+    @Test func zipcacheDoesNotUseNetworkBitWidth() throws {
+        let json = """
+        {
+          "name": "zipcache",
+          "family": "hybrid",
+          "serve_tier": "accounting_only",
+          "serve_tier_label": "available",
+          "is_servable": true,
+          "blurb": "ZipCache: saliency-weighted mixed-precision compression.",
+          "config_fields": ["bit_width_inlier", "seed", "zipcache_group_size", "zipcache_hi_bits", "zipcache_hi_fraction", "zipcache_lo_bits", "zipcache_quantize_values"],
+          "field_schema": [],
+          "coverage": "keys_and_values",
+          "coverage_label": "full estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": null,
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let zipcache = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(zipcache.configFields.contains("bit_width_inlier"))
+        #expect(!zipcache.usesNetworkBitWidth)
+        #expect(zipcache.isServable)
+        #expect(zipcache.unsupportedReason == nil)
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its
