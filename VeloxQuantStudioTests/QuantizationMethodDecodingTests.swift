@@ -559,6 +559,79 @@ struct QuantizationMethodDecodingTests {
         #expect(nestedkv.unsupportedReason?.contains("is_trimmable() == False") == true)
     }
 
+    /// Issue #23 (`palu`, quantization): `palu` is *curated* in registry.py's
+    /// `_CONFIG_FIELDS` (like `kitty` #12 and `kivi_sink` #14), so
+    /// `config_fields` never includes `bit_width_inlier`/`seed` — no
+    /// `methodsIgnoringNetworkBitWidth` entry is needed, and `configFields`
+    /// alone (via `usesNetworkBitWidth`) is the source of truth.
+    ///
+    /// A real backend bug was found and fixed while verifying this issue
+    /// (upstream VeloxQuant-MLX#366, referencing this Studio issue by
+    /// number): `palu`'s `_CONFIG_FIELDS` entry had held only
+    /// `["palu_rank", "palu_energy_threshold"]` since the method's original
+    /// introduction, even though `PALUKVCache.__init__` consumes six more
+    /// real knobs (`palu_n_head_groups`, `palu_hi_bit`, `palu_lo_bit`,
+    /// `palu_hi_fraction`, `palu_group_size`, `palu_quantize_values`) — all
+    /// completely invisible to the macOS app's parameter editor and to
+    /// `veloxquant serve --set` validation, since a curated method gets no
+    /// prefix-fallback exposure the way an uncurated one would. The fix
+    /// expanded `_CONFIG_FIELDS["palu"]` to all eight real fields; this test
+    /// pins the corrected payload so a future regression (a knob silently
+    /// dropping back out of `config_fields`/`field_schema`) fails here too,
+    /// not just in the Python registry test.
+    ///
+    /// The same upstream commit also fixed the #358 `merge()` hasattr-guard
+    /// batching-substitution bug for `palu` (the 8th confirmed occurrence) —
+    /// unrelated to `config_fields`/`field_schema` and requiring no Swift
+    /// change, since the UI never special-cases `palu` by name.
+    @Test func paluExposesAllEightConfigFields() throws {
+        let json = """
+        {
+          "name": "palu",
+          "family": "quantization",
+          "serve_tier": "accounting_only",
+          "serve_tier_label": "available",
+          "is_servable": true,
+          "blurb": "PALU: true low-rank latent projection of both keys and values.",
+          "config_fields": ["palu_rank", "palu_energy_threshold", "palu_n_head_groups", "palu_hi_bit", "palu_lo_bit", "palu_hi_fraction", "palu_group_size", "palu_quantize_values"],
+          "field_schema": [
+            {"name": "palu_rank", "type": "int", "default": null, "optional": true, "help": "Latent rank; blank uses the energy threshold instead."},
+            {"name": "palu_energy_threshold", "type": "float", "default": 0.9, "optional": false, "help": "Fraction of singular-value energy to retain."},
+            {"name": "palu_n_head_groups", "type": "int", "default": 4, "optional": false, "help": "Number of head groups sharing a low-rank projection."},
+            {"name": "palu_hi_bit", "type": "int", "default": 4, "optional": false, "help": "Mixed-bit: bits for the top latent channels."},
+            {"name": "palu_lo_bit", "type": "int", "default": 2, "optional": false, "help": "Mixed-bit: bits for the remaining latent channels."},
+            {"name": "palu_hi_fraction", "type": "float", "default": 0.25, "optional": false, "help": "Fraction of latent channels kept at the higher bit-width."},
+            {"name": "palu_group_size", "type": "int", "default": 32, "optional": false, "help": "Tokens per latent quantization group."},
+            {"name": "palu_quantize_values", "type": "bool", "default": true, "optional": false, "help": "Also mixed-bit quantize values (off keeps value latents at fp16)."}
+          ],
+          "coverage": "keys_and_values",
+          "coverage_label": "full estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": null,
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let palu = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(palu.fieldSchema.count == 8)
+        #expect(palu.fieldSchema.map(\.name) == [
+            "palu_rank", "palu_energy_threshold", "palu_n_head_groups", "palu_hi_bit",
+            "palu_lo_bit", "palu_hi_fraction", "palu_group_size", "palu_quantize_values",
+        ])
+        #expect(!palu.usesNetworkBitWidth)
+        #expect(palu.isServable)
+        #expect(palu.unsupportedReason == nil)
+
+        let rank = try #require(palu.fieldSchema.first { $0.name == "palu_rank" })
+        #expect(rank.optional)
+        #expect(rank.defaultValue == nil)
+
+        let quantizeValues = try #require(palu.fieldSchema.first { $0.name == "palu_quantize_values" })
+        #expect(quantizeValues.defaultValue == .bool(true))
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its
