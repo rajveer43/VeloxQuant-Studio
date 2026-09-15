@@ -926,6 +926,66 @@ struct QuantizationMethodDecodingTests {
         #expect(squeeze.unsupportedReason?.contains("is_trimmable() == False") == true)
     }
 
+    /// Issue #29 (`streaming_llm`, eviction): same `not_trimmable` shape as
+    /// `knorm`/`kvzip`/`morphkv`/`nestedkv`/`qfilters`/`snapkv` — uncurated,
+    /// so `config_fields` carries `bit_width_inlier`/`seed` via
+    /// `_default_config_fields()` even though `StreamingLLMKVCache` never
+    /// reads them; already correctly listed in
+    /// `methodsIgnoringNetworkBitWidth`.
+    ///
+    /// Two bugs found and fixed verifying this issue (upstream
+    /// VeloxQuant-MLX#373):
+    /// 1. The standard #358 `merge()` hasattr-guard batching-substitution
+    ///    bug (14th confirmed occurrence).
+    /// 2. A `tokens_kept` telemetry gap: every other eviction cache (h2o,
+    ///    tova, pyramidkv, snapkv, squeeze, ...) exposes a `tokens_kept`
+    ///    property that telemetry code probes via `hasattr`/`getattr`;
+    ///    `streaming_llm` only defined the semantically-identical
+    ///    `tokens_in_window`, so a `/v1/kv/stats`-style aggregator would
+    ///    silently report 0 retained tokens regardless of actual eviction
+    ///    state (`tokens_seen` alone already satisfied the "has telemetry"
+    ///    check, so the gap was invisible). Fixed by adding `tokens_kept`
+    ///    as an alias.
+    ///
+    /// Unlike `pyramidkv`/`squeeze`, no `field_schema` leak was found here:
+    /// both `stream_n_sink`/`stream_window_size` are genuinely user-facing,
+    /// with no internal "resolved" field hiding behind the `stream_`
+    /// prefix. This is also the third and final confirmation (after
+    /// `snapkv` #27 and `squeeze` #28) of the eviction-family
+    /// causal-mask/eviction architectural bug tracked as backend issue
+    /// #370 — `streaming_llm` evicts on every call rather than only during
+    /// prefill, so the corruption surfaces on every decode step once the
+    /// window saturates, not just the initial prompt. Deliberately left
+    /// unfixed, same scoping as #27/#28. Neither bug fixed here touches
+    /// `config_fields`/`field_schema`; no Swift change needed.
+    @Test func streamingLLMDoesNotUseNetworkBitWidth() throws {
+        let json = """
+        {
+          "name": "streaming_llm",
+          "family": "eviction",
+          "serve_tier": "not_trimmable",
+          "serve_tier_label": "available (no prompt-cache trimming)",
+          "is_servable": true,
+          "blurb": "StreamingLLM: attention sinks plus a sliding window.",
+          "config_fields": ["bit_width_inlier", "seed", "stream_n_sink", "stream_window_size"],
+          "field_schema": [],
+          "coverage": "none",
+          "coverage_label": "no estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": "serves correctly, but reports is_trimmable() == False, so mlx_lm.server cannot trim its prompt cache — trim() would roll back offset bookkeeping without reverting internal eviction state. Expected for eviction/compression caches (#152).",
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let streamingLLM = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(streamingLLM.configFields.contains("bit_width_inlier"))
+        #expect(!streamingLLM.usesNetworkBitWidth)
+        #expect(streamingLLM.isServable)
+        #expect(streamingLLM.unsupportedReason?.contains("is_trimmable() == False") == true)
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its
