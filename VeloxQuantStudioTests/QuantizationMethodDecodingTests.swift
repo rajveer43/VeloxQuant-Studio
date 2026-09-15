@@ -509,6 +509,56 @@ struct QuantizationMethodDecodingTests {
         #expect(morphkv.unsupportedReason?.contains("is_trimmable() == False") == true)
     }
 
+    /// Issue #21 (`nestedkv`, quantization): same `not_trimmable` shape as
+    /// `knorm` (#15), `kvzip` (#18), and `morphkv` (#20) — `nestedkv` is
+    /// uncurated, so `_default_config_fields()` still prepends
+    /// `bit_width_inlier` to `config_fields` even though `NestedKVKVCache`
+    /// never reads it (its real knobs — `nestedkv_beta`, `nestedkv_budget`,
+    /// `nestedkv_kappa`, `nestedkv_n_sink`, `nestedkv_safeguard_alpha`,
+    /// `nestedkv_tau`, `nestedkv_window` — all share the `nestedkv_`
+    /// prefix). Captured verbatim from a real `veloxquant methods --json`
+    /// run, including the exact `unsupported_reason` text (trim-safety
+    /// rationale, issue #152) the method detail banner must surface before
+    /// Start Job — the specific ask in issue #21. A real, more substantial
+    /// backend bug was found and fixed for this method (issue #21, upstream
+    /// `NestedKVKVCache`): zero-padded ragged per-head lengths were
+    /// corrupting attention output, fixed by dropping the cross-head budget
+    /// reallocation in favor of a uniform per-head budget (same convention
+    /// as H2O/CurDKV/PyramidKV); the same `merge()` hasattr-guard batching
+    /// bug as knorm/kvquant/kvtc/kvzip/minicache/morphkv was fixed
+    /// alongside it. Neither half changes `config_fields`/`field_schema`
+    /// (`nestedkv_safeguard_alpha` is still parsed and stored, just no
+    /// longer consumed internally) or needs a Swift change, since
+    /// `nestedkv` was already correctly listed in
+    /// `methodsIgnoringNetworkBitWidth`.
+    @Test func nestedkvDoesNotUseNetworkBitWidth() throws {
+        let json = """
+        {
+          "name": "nestedkv",
+          "family": "quantization",
+          "serve_tier": "not_trimmable",
+          "serve_tier_label": "available (no prompt-cache trimming)",
+          "is_servable": true,
+          "blurb": "NestedKV: hierarchical nested codebooks.",
+          "config_fields": ["bit_width_inlier", "seed", "nestedkv_beta", "nestedkv_budget", "nestedkv_kappa", "nestedkv_n_sink", "nestedkv_safeguard_alpha", "nestedkv_tau", "nestedkv_window"],
+          "field_schema": [],
+          "coverage": "none",
+          "coverage_label": "no estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": "serves correctly, but reports is_trimmable() == False, so mlx_lm.server cannot trim its prompt cache — trim() would roll back offset bookkeeping without reverting internal eviction state. Expected for eviction/compression caches (#152).",
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let nestedkv = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(nestedkv.configFields.contains("bit_width_inlier"))
+        #expect(!nestedkv.usesNetworkBitWidth)
+        #expect(nestedkv.isServable)
+        #expect(nestedkv.unsupportedReason?.contains("is_trimmable() == False") == true)
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its
