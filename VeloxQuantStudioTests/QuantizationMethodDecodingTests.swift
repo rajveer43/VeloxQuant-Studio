@@ -1151,6 +1151,63 @@ struct QuantizationMethodDecodingTests {
         #expect(vecinfer.fieldSchema.count == 5)
     }
 
+    /// Issue #34 (`xkv`, eviction): despite being in the `eviction` family,
+    /// `xkv` decodes as `accounting_only` (not `not_trimmable`) — it's
+    /// VeloxQuant-MLX's third cross-layer mechanism alongside `xquant`
+    /// (code reuse) and `minicache` (SLERP merge), grouping layers into a
+    /// fixed-size group sharing one SVD basis via `XKVCoordinator`. `xkv`
+    /// is uncurated, so `config_fields` carries `bit_width_inlier`/`seed`
+    /// via `_default_config_fields()` even though `XKVCache` never reads
+    /// them; already correctly listed in `methodsIgnoringNetworkBitWidth`.
+    /// Tier gating is already covered generically by
+    /// `startBlockedReasonIsNilForServableMethod`.
+    ///
+    /// `XKVCache` had no `merge()` guard — the 18th confirmed #358
+    /// occurrence, and a notably worse case than most: unlike caches that
+    /// bypass the base fp16 ring buffer entirely, `XKVCache.update_and_fetch`
+    /// *does* populate `self.keys`, so the inherited `merge()` doesn't
+    /// crash — it silently succeeds, severing the entire cross-layer
+    /// `XKVCoordinator` relationship (`member_idx`, `group_id`, the shared
+    /// `V_g`/`K_mean_g` basis) for every layer in the group, not just the
+    /// one that got merged. Fixed upstream in VeloxQuant-MLX#379 with the
+    /// standard guard; live-verified `/v1/kv/stats` moved from zero
+    /// telemetry to real byte accounting.
+    ///
+    /// Live verification also surfaced a separate, pre-existing byte-
+    /// accounting bug (per-decode-step group-quantization overhead charged
+    /// fresh on every `S=1` call rather than amortized) — also reproducible
+    /// on `svdq` (#30) and 5+ other cache classes, filed as its own shared
+    /// architectural issue (VeloxQuant-MLX#378) rather than fixed here.
+    /// Neither the merge() fix nor the filed byte-accounting issue touches
+    /// `config_fields`/`field_schema`; no Swift change needed.
+    @Test func xkvDoesNotUseNetworkBitWidth() throws {
+        let json = """
+        {
+          "name": "xkv",
+          "family": "eviction",
+          "serve_tier": "accounting_only",
+          "serve_tier_label": "available",
+          "is_servable": true,
+          "blurb": "XKV: cross-layer budget optimization.",
+          "config_fields": ["bit_width_inlier", "seed", "xkv_energy_threshold", "xkv_group_quant_size", "xkv_group_size", "xkv_latent_bits", "xkv_max_ctx", "xkv_rank"],
+          "field_schema": [],
+          "coverage": "keys_only",
+          "coverage_label": "partial estimate",
+          "paper_deviation": null,
+          "is_adapted": false,
+          "unsupported_reason": null,
+          "docs_url": null
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let xkv = try JSONDecoder().decode(QuantizationMethod.self, from: data)
+
+        #expect(xkv.configFields.contains("bit_width_inlier"))
+        #expect(!xkv.usesNetworkBitWidth)
+        #expect(xkv.isServable)
+        #expect(xkv.unsupportedReason == nil)
+    }
+
     /// Regression for issue #16: `kvquant` is *curated* in registry.py's
     /// `_CONFIG_FIELDS`, but that explicit list was missing `kvquant_n_sink`
     /// (`KVQuantKVCache`'s Attention Sink-Aware knob, read directly in its
